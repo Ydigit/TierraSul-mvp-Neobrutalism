@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-space-grotesk), -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Brutalism palette */
+  --color-brutal-yellow: #ffeb3b;
+  --color-brutal-pink: #ff6b9d;
+  --color-brutal-cyan: #00e5ff;
+  --color-brutal-lime: #c6ff00;
+  --color-brutal-cream: #fff8e7;
+  --color-brutal-red: #ff3b3b;
+  --color-brutal-orange: #ff6b35;
+  --color-brutal-green: #00c853;
+}
+
+/*
+ * Custom utilities — `border-3` is used heavily on Brutalist badges/stickers.
+ * Tailwind v4 ships border-2/4/8 by default but not border-3.
+ */
+@utility border-3 {
+  border-width: 3px;
+}
+
+@utility border-b-3 {
+  border-bottom-width: 3px;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: #fff8e7;
+    color: #000;
+    font-family: var(--font-sans);
+  }
+}
+
+/* Marquee animation used by the <Marquee> component */
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 30s linear infinite;
+}
