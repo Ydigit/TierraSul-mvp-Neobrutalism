@@ -24,7 +24,7 @@ type BrutalButtonProps = CommonProps &
   );
 
 const baseClasses =
-  "inline-block text-center border-4 border-black font-black uppercase tracking-tight transition-all duration-100";
+  "inline-block text-center border-4 border-black font-black uppercase tracking-tight transition-all duration-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-x-0 disabled:translate-y-0 disabled:bg-[#E5E5E5] disabled:text-[#666] disabled:shadow-[4px_4px_0_#999] disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-[4px_4px_0_#999] aria-disabled:opacity-50 aria-disabled:cursor-not-allowed";
 
 const variantClasses: Record<Variant, string> = {
   primary:

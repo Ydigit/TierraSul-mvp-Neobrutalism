@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Mail } from "lucide-react";
 import { BrutalButton } from "@/components/ui/brutal-button";
-import { useAuth, landingPathForRole } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/ui/toast";
 
 const CODE_LENGTH = 6;
@@ -21,18 +21,15 @@ export default function VerifyEmailPage() {
 function VerifyEmailContent() {
   const router = useRouter();
   const params = useSearchParams();
-  const { user, loading, updateUser } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const { toast } = useToast();
 
-  // Bounce already-verified users to their dashboard; banned users to /banned.
+  // Banned → /banned. Verified users keep access to this page only so the
+  // submit handler can still run (typical case is signOut→/sign-in).
   useEffect(() => {
     if (loading || !user) return;
     if (user.status === "banned") {
       router.replace("/banned");
-      return;
-    }
-    if (user.emailVerified) {
-      router.replace(landingPathForRole(user.role));
     }
   }, [loading, user, router]);
 
@@ -93,18 +90,24 @@ function VerifyEmailContent() {
 
   const verify = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!filled || verifying) return;
+    if (verifying) return;
+    if (!filled) {
+      setError(`Enter all ${CODE_LENGTH} digits`);
+      return;
+    }
     setVerifying(true);
     setError(null);
-    // Mock: any 6-digit code is accepted. Backend will replace with Supabase OTP.
+    // Mock: any 6-digit code is accepted. Real impl will call
+    // `supabase.auth.verifyOtp({ email: targetEmail, token: code, type: 'email' })`
+    // and only proceed on success.
     setTimeout(() => {
-      if (!user) {
-        router.push("/sign-in");
-        return;
-      }
-      updateUser({ emailVerified: true });
-      toast("Email verified — welcome aboard!", "success");
-      router.push(landingPathForRole(user.role));
+      // Clear the half-baked session created during sign-up so the user logs
+      // in fresh with email+password (mirrors a real verification handoff).
+      signOut();
+      toast("Email verified — sign in to continue", "success");
+      router.push(
+        `/sign-in?email=${encodeURIComponent(targetEmail)}&verified=1`
+      );
     }, 400);
   };
 

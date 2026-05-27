@@ -354,36 +354,61 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setState(INITIAL);
   }, []);
 
+  const value = useMemo<StoreContextValue>(
+    () => ({
+      state,
+      allTours,
+      toursById,
+      createTour,
+      updateTour,
+      cancelTour,
+      deleteTour,
+      forceCloseTour,
+      restoreTour,
+      joinTour,
+      leaveTour,
+      isMember,
+      membersOf,
+      hasPurchased,
+      purchasesByOperator,
+      purchaseContacts,
+      setDealClosed,
+      banUser,
+      unbanUser,
+      isBanned,
+      toggleOperatorReviewed,
+      isOperatorReviewed,
+      resetStore,
+    }),
+    [
+      state,
+      allTours,
+      toursById,
+      createTour,
+      updateTour,
+      cancelTour,
+      deleteTour,
+      forceCloseTour,
+      restoreTour,
+      joinTour,
+      leaveTour,
+      isMember,
+      membersOf,
+      hasPurchased,
+      purchasesByOperator,
+      purchaseContacts,
+      setDealClosed,
+      banUser,
+      unbanUser,
+      isBanned,
+      toggleOperatorReviewed,
+      isOperatorReviewed,
+      resetStore,
+    ]
+  );
+
   return (
-    <StoreContext.Provider
-      value={{
-        state,
-        allTours,
-        toursById,
-        createTour,
-        updateTour,
-        cancelTour,
-        deleteTour,
-        forceCloseTour,
-        restoreTour,
-        joinTour,
-        leaveTour,
-        isMember,
-        membersOf,
-        hasPurchased,
-        purchasesByOperator,
-        purchaseContacts,
-        setDealClosed,
-        banUser,
-        unbanUser,
-        isBanned,
-        toggleOperatorReviewed,
-        isOperatorReviewed,
-        resetStore,
-      }}
-    >
-      {children}
-    </StoreContext.Provider>
+    <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
   );
 }
 

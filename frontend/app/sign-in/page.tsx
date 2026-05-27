@@ -38,7 +38,9 @@ function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
-  const [email, setEmail] = useState("");
+  const prefillEmail = searchParams.get("email") ?? "";
+  const justVerified = searchParams.get("verified") === "1";
+  const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +74,13 @@ function SignInForm() {
           <h1 className="text-5xl font-black uppercase leading-none mb-8">
             WELCOME<br />BACK
           </h1>
+
+          {justVerified && (
+            <div className="bg-[#C6FF00] border-4 border-black shadow-[4px_4px_0_#000] px-4 py-3 mb-6 font-bold uppercase text-sm flex items-center gap-3">
+              <span aria-hidden className="text-xl leading-none">✓</span>
+              <span>EMAIL VERIFIED — SIGN IN TO CONTINUE</span>
+            </div>
+          )}
 
           <form onSubmit={submit} className="space-y-4 mb-6" noValidate>
             <BrutalInput
