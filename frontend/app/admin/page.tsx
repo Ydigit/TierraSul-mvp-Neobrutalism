@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, TrendingUp, Users, Building2, Activity } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { KpiChartModal, type KpiKind } from "@/components/admin/kpi-chart-modal";
 
 export default function AdminOverviewPage() {
   const { allTours, state } = useStore();
+  const [chart, setChart] = useState<KpiKind | null>(null);
 
   // Mock activity feed — in real app, comes from event log
   const activity = useMemo(
@@ -88,28 +90,43 @@ export default function AdminOverviewPage() {
         />
       </div>
 
-      {/* KPIs */}
+      {/* KPIs — clicking each opens a chart drill-in */}
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        <KpiCard label="MRR" value="€1,247" color="#FFEB3B" icon={<TrendingUp className="w-6 h-6" strokeWidth={3} />} />
+        <KpiCard
+          label="MRR"
+          value="€1,247"
+          color="#FFEB3B"
+          icon={<TrendingUp className="w-6 h-6" strokeWidth={3} />}
+          onClick={() => setChart("mrr")}
+        />
         <KpiCard
           label="ACTIVE OPERATORS"
           value="23"
           color="#00E5FF"
           icon={<Building2 className="w-6 h-6" strokeWidth={3} />}
+          onClick={() => setChart("operators")}
         />
         <KpiCard
           label="TRAVELERS"
           value="487"
           color="#FF6B9D"
           icon={<Users className="w-6 h-6" strokeWidth={3} />}
+          onClick={() => setChart("travelers")}
         />
         <KpiCard
           label="TOURS CLOSED"
           value="34/MO"
           color="#C6FF00"
           icon={<Activity className="w-6 h-6" strokeWidth={3} />}
+          onClick={() => setChart("tours")}
         />
       </div>
+
+      <KpiChartModal
+        open={chart !== null}
+        onClose={() => setChart(null)}
+        kind={chart}
+      />
 
       <div className="grid md:grid-cols-2 gap-8">
         {/* Activity feed */}
@@ -217,22 +234,30 @@ function KpiCard({
   value,
   color,
   icon,
+  onClick,
 }: {
   label: string;
   value: string;
   color: string;
   icon: React.ReactNode;
+  onClick: () => void;
 }) {
   return (
-    <div
-      className="border-4 border-black p-6 shadow-[6px_6px_0_#000] bg-white"
+    <button
+      type="button"
+      onClick={onClick}
+      className="border-4 border-black p-6 shadow-[6px_6px_0_#000] bg-white text-left hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-[3px_3px_0_#000] transition-all duration-100"
       style={{ borderLeftWidth: 12, borderLeftColor: color }}
+      aria-label={`Open ${label} insights`}
     >
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs font-bold uppercase">{label}</div>
         {icon}
       </div>
       <div className="text-3xl md:text-4xl font-black">{value}</div>
-    </div>
+      <p className="mt-2 font-bold uppercase text-[10px] text-[#666]">
+        ★ Click for trend
+      </p>
+    </button>
   );
 }

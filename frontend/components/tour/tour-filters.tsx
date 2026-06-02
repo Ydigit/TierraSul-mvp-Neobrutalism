@@ -5,7 +5,20 @@ import { BrutalSelect } from "../ui/brutal-select";
 import { BrutalButton } from "../ui/brutal-button";
 import { countries, tourTypes } from "@/data/mock-data";
 
-export type SortBy = "newest" | "closing-soon" | "price-low" | "price-high";
+/**
+ * Sort keys.
+ *
+ * Note (2026-06-02): `soonest-departure` previously named `closing-soon`.
+ * Renamed because "CLOSING SOON" already means something else in the UI —
+ * the 48h badge on tours inside their closing window. Using the same label
+ * for a sort criterion would conflate the two ideas. The backend should
+ * mirror this rename so payloads/queries stay coherent.
+ */
+export type SortBy =
+  | "newest"
+  | "soonest-departure"
+  | "price-low"
+  | "price-high";
 
 export interface TourFilterValues {
   country: string;
@@ -24,14 +37,12 @@ export const DEFAULT_FILTERS: TourFilterValues = {
 interface TourFiltersProps {
   values: TourFilterValues;
   onChange: (values: TourFilterValues) => void;
-  /** Restrict country options (used for operators whose plan limits regions) */
-  allowedCountries?: string[];
   className?: string;
 }
 
 const sortOptions = [
   { value: "newest", label: "NEWEST" },
-  { value: "closing-soon", label: "CLOSING SOON" },
+  { value: "soonest-departure", label: "SOONEST DEPARTURE" },
   { value: "price-low", label: "PRICE LOW → HIGH" },
   { value: "price-high", label: "PRICE HIGH → LOW" },
 ];
@@ -46,14 +57,10 @@ const sizeOptions = [
 export function TourFilters({
   values,
   onChange,
-  allowedCountries,
   className = "",
 }: TourFiltersProps) {
-  const filteredCountries = allowedCountries
-    ? countries.filter(
-        (c) => c.value === "all" || allowedCountries.includes(c.value)
-      )
-    : countries;
+  // Country dropdown shows every country — it's a UI filter, never a permission.
+  const filteredCountries = countries;
 
   const update = (patch: Partial<TourFilterValues>) =>
     onChange({ ...values, ...patch });
@@ -173,7 +180,7 @@ export function applyFilters<
     case "price-high":
       result.sort((a, b) => b.price - a.price);
       break;
-    case "closing-soon":
+    case "soonest-departure":
       result.sort((a, b) => a.dateStart.localeCompare(b.dateStart));
       break;
     case "newest":

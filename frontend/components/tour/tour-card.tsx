@@ -13,8 +13,17 @@ export interface Tour {
   days: number;
   price: number;
   currentMembers: number;
+  /** Threshold that triggers the 48h closing window when first reached. */
+  minMembers: number;
   maxMembers: number;
   status: "open" | "closed" | "expired" | "cancelled" | "completed" | "draft";
+  /**
+   * ISO timestamp of the moment the group first hit `minMembers`. Once set,
+   * NEVER resets (cumulative — see 2026-05-28 closing-window decision).
+   */
+  minReachedAt?: string;
+  /** ISO timestamp of when the group closed (max reached OR 48h elapsed). */
+  closedAt?: string;
   type: string;
   bgColor?: string;
   isHot?: boolean;
@@ -30,7 +39,7 @@ export function TourCard({ tour, showStatus = false }: TourCardProps) {
 
   return (
     <Link href={`/tours/${tour.id}`}>
-      <div className="bg-white border-4 border-black shadow-[8px_8px_0_#000] hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-[5px_5px_0_#000] transition-all duration-100 cursor-pointer relative">
+      <div className="bg-white border-4 border-black shadow-[8px_8px_0_#000] hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-[5px_5px_0_#000] transition-all duration-100 cursor-pointer relative overflow-hidden">
         {tour.isHot && (
           <div className="absolute -top-4 -right-4 bg-[#C6FF00] border-3 border-black w-20 h-20 rounded-full flex items-center justify-center font-black -rotate-12 shadow-[4px_4px_0_#000] text-xs z-10">
             HOT!
@@ -56,7 +65,7 @@ export function TourCard({ tour, showStatus = false }: TourCardProps) {
         </div>
 
         <div className="p-6">
-          <h3 className="text-3xl font-black uppercase leading-none mb-3">
+          <h3 className="text-3xl font-black uppercase leading-tight mb-3 break-words overflow-hidden">
             {tour.title}
           </h3>
 

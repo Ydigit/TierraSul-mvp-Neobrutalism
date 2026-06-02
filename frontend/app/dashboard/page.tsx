@@ -96,8 +96,9 @@ function DashboardContent() {
               {myTours.map((tour) => (
                 <div key={tour.id} className="relative">
                   <TourCard tour={tour} showStatus />
-                  {/* Floating action menu in top-right corner */}
-                  <div className="absolute top-3 left-3 z-10">
+                  {/* Floating action menu — below the price badge so it
+                       never overlaps the status pill in the top-left */}
+                  <div className="absolute top-14 right-3 z-10">
                     <ActionMenu
                       ariaLabel={`Actions for ${tour.title}`}
                       items={[

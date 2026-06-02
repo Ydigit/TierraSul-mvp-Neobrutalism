@@ -8,6 +8,7 @@ import { Header } from "@/components/shared/header";
 import { Footer } from "@/components/shared/footer";
 import { BrutalButton } from "@/components/ui/brutal-button";
 import { BrutalInput } from "@/components/ui/brutal-input";
+import { CityAutocomplete } from "@/components/ui/city-autocomplete";
 import { BrutalTextarea } from "@/components/ui/brutal-textarea";
 import { BrutalSelect } from "@/components/ui/brutal-select";
 import { countries, tourTypes, languages } from "@/data/mock-data";
@@ -99,10 +100,17 @@ function CreateTourForm() {
     if (!type) e.type = "Pick a tour type";
     const minN = Number(minP);
     const maxN = Number(maxP);
-    if (!minN || !maxN || minN < 2 || maxN < 2) {
+    const HARD_MAX = 30; // sanity cap — no real group is 2222222 people
+    if (!Number.isFinite(minN) || !Number.isFinite(maxN)) {
+      e.participants = "Both fields are required";
+    } else if (minN < 2 || maxN < 2) {
       e.participants = "Min 2 people";
+    } else if (maxN > HARD_MAX) {
+      e.participants = `Max participants cannot exceed ${HARD_MAX}`;
     } else if (minN > maxN) {
       e.participants = "Min must be ≤ max";
+    } else if (!Number.isInteger(minN) || !Number.isInteger(maxN)) {
+      e.participants = "Whole numbers only";
     }
     if (description.trim().length < 30) {
       e.description = "Description must be at least 30 characters";
@@ -141,6 +149,7 @@ function CreateTourForm() {
       dateEnd: formatDate(endDate),
       days,
       price: Number(budget) || 0,
+      minMembers: Number(minP),
       maxMembers: Number(maxP),
       type: type[0].toUpperCase() + type.slice(1),
       bgColor: COLOR_BY_TYPE[type] ?? "#FFEB3B",
@@ -176,8 +185,9 @@ function CreateTourForm() {
                 label="TOUR TITLE *"
                 type="text"
                 placeholder="Salar de Uyuni 4D/3N"
-                helper="Be specific: include destination + duration"
+                helper={`Be specific: include destination + duration · ${title.length}/120`}
                 value={title}
+                maxLength={120}
                 onChange={(e) => setTitle(e.target.value)}
               />
             </FieldError>
@@ -187,15 +197,20 @@ function CreateTourForm() {
                 label="COUNTRY *"
                 options={countries.filter((c) => c.value !== "all")}
                 value={country}
-                onChange={(e) => setCountry(e.target.value)}
+                onChange={(e) => {
+                  setCountry(e.target.value);
+                  // Reset the city so stale matches don't carry over (e.g. "Uyuni"
+                  // typed under BO must not bleed into PE).
+                  setCity("");
+                }}
               />
               <FieldError msg={errors.city}>
-                <BrutalInput
+                <CityAutocomplete
                   label="CITY *"
-                  type="text"
-                  placeholder="Uyuni"
+                  country={country}
                   value={city}
-                  onChange={(e) => setCity(e.target.value)}
+                  onChange={setCity}
+                  placeholder="Uyuni"
                 />
               </FieldError>
             </div>
@@ -266,6 +281,8 @@ function CreateTourForm() {
                 label="MIN PARTICIPANTS *"
                 type="number"
                 min="2"
+                max="30"
+                step="1"
                 value={minP}
                 onChange={(e) => setMinP(e.target.value)}
               />
@@ -273,6 +290,8 @@ function CreateTourForm() {
                 label="MAX PARTICIPANTS *"
                 type="number"
                 min="2"
+                max="30"
+                step="1"
                 value={maxP}
                 onChange={(e) => setMaxP(e.target.value)}
               />
@@ -301,6 +320,7 @@ function CreateTourForm() {
                 onChange={(e) => setDescription(e.target.value)}
                 showCount
                 maxCount={2000}
+                maxLength={2000}
                 helper="30–2000 characters"
               />
             </FieldError>

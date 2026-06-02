@@ -1,6 +1,14 @@
 "use client";
 
-import { LayoutDashboard, Users, Briefcase, Activity, LogOut } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  Briefcase,
+  Activity,
+  LogOut,
+  ImageIcon,
+  Flag,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { RequireRole } from "@/components/auth/require-role";
@@ -11,6 +19,18 @@ const navItems = [
   { path: "/admin/tours", label: "Tours", icon: Activity },
   { path: "/admin/users", label: "Users", icon: Users },
   { path: "/admin/operators", label: "Operators", icon: Briefcase },
+  {
+    path: "/admin/moderation/photos",
+    label: "Photos",
+    icon: ImageIcon,
+    group: "moderation",
+  },
+  {
+    path: "/admin/moderation/reports",
+    label: "Reports",
+    icon: Flag,
+    group: "moderation",
+  },
 ];
 
 export default function AdminLayout({
@@ -41,12 +61,20 @@ function AdminShell({ children }: { children: React.ReactNode }) {
           </p>
         </div>
         <nav className="flex-1 p-4">
-          {navItems.map((item) => {
+          {navItems.map((item, i) => {
             const Icon = item.icon;
             const isActive = pathname === item.path;
+            // Insert a subdued divider above the first "moderation" item.
+            const prev = navItems[i - 1];
+            const showDivider = item.group === "moderation" && prev?.group !== "moderation";
             return (
+              <div key={item.path}>
+                {showDivider && (
+                  <p className="px-4 mt-4 mb-2 font-black uppercase text-[10px] tracking-wider text-[#FFEB3B]">
+                    MODERATION
+                  </p>
+                )}
               <Link
-                key={item.path}
                 href={item.path}
                 className={`flex items-center gap-3 px-4 py-3 mb-2 font-bold uppercase text-sm transition-all ${
                   isActive
@@ -57,6 +85,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
                 <Icon className="w-5 h-5" strokeWidth={3} />
                 {item.label}
               </Link>
+              </div>
             );
           })}
         </nav>

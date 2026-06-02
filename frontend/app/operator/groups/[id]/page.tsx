@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Users, Calendar, DollarSign, Globe } from "lucide-react";
+import { Users, Calendar, DollarSign, Globe, Zap } from "lucide-react";
 import { Header } from "@/components/shared/header";
 import { Footer } from "@/components/shared/footer";
 import { BrutalButton } from "@/components/ui/brutal-button";
@@ -12,7 +12,8 @@ import { BrutalModal } from "@/components/ui/brutal-modal";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SubscriptionBanner } from "@/components/operator/subscription-banner";
 import { ContactList, type ContactRow } from "@/components/operator/contact-list";
-import { useAuth, canOperatorAccessGroups } from "@/lib/auth";
+import { GroupProfileView } from "@/components/profile/group-profile-view";
+import { useAuth, canOperatorAccessGroups, type AuthUser } from "@/lib/auth";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/components/ui/toast";
 
@@ -26,6 +27,8 @@ const MOCK_CONTACTS: ContactRow[] = [
     phone: "+34 600 123 456",
     languages: ["ES", "EN"],
     bio: "Backpacking SA for 6 months. Photography and slow travel.",
+    avatarUrl: "https://picsum.photos/seed/maria/200/200",
+    photos: ["https://picsum.photos/seed/maria1/600/600", "https://picsum.photos/seed/maria2/600/600"],
   },
   {
     name: "John Smith",
@@ -35,6 +38,8 @@ const MOCK_CONTACTS: ContactRow[] = [
     email: "john.smith@example.com",
     languages: ["EN"],
     bio: "First time in South America — flexible on schedule.",
+    avatarUrl: "https://picsum.photos/seed/john/200/200",
+    photos: ["https://picsum.photos/seed/john1/600/600"],
   },
   {
     name: "Yuki Tanaka",
@@ -45,6 +50,8 @@ const MOCK_CONTACTS: ContactRow[] = [
     phone: "+81 90 1234 5678",
     languages: ["EN", "ES"],
     bio: "Solo traveler. Loves landscape photography.",
+    avatarUrl: "https://picsum.photos/seed/yuki/200/200",
+    photos: [],
   },
   {
     name: "Carlos Santos",
@@ -55,6 +62,8 @@ const MOCK_CONTACTS: ContactRow[] = [
     phone: "+55 11 98765 4321",
     languages: ["PT", "ES", "EN"],
     bio: "Climber and hiker. Good for high-altitude tours.",
+    avatarUrl: "https://picsum.photos/seed/carlos/200/200",
+    photos: ["https://picsum.photos/seed/carlos1/600/600", "https://picsum.photos/seed/carlos2/600/600", "https://picsum.photos/seed/carlos3/600/600"],
   },
   {
     name: "Anna Mueller",
@@ -64,6 +73,8 @@ const MOCK_CONTACTS: ContactRow[] = [
     email: "anna.mueller@example.com",
     languages: ["EN", "DE"],
     bio: "Vegan, prefers small groups.",
+    avatarUrl: "https://picsum.photos/seed/anna/200/200",
+    photos: ["https://picsum.photos/seed/anna1/600/600"],
   },
   {
     name: "David Lee",
@@ -74,17 +85,40 @@ const MOCK_CONTACTS: ContactRow[] = [
     phone: "+61 400 123 456",
     languages: ["EN"],
     bio: "Long road trips. Easy-going.",
+    avatarUrl: "https://picsum.photos/seed/david/200/200",
+    photos: [],
   },
 ];
+
+function contactToAuthUser(c: ContactRow): AuthUser {
+  return {
+    id: c.email,
+    role: "traveler",
+    email: c.email,
+    name: c.name,
+    emailVerified: true,
+    status: "active",
+    country: c.country,
+    age: c.age,
+    bio: c.bio,
+    languages: c.languages.map((l) => l.toLowerCase()),
+    avatarUrl: c.avatarUrl,
+    photos: c.photos,
+    phone: c.phone,
+  };
+}
 
 export default function OperatorGroupDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const { user } = useAuth();
-  const { toursById, hasPurchased, purchaseContacts } = useStore();
+  const { toursById, hasPurchased, purchaseContacts, submitReport } =
+    useStore();
   const { toast } = useToast();
   const [confirming, setConfirming] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [previewIdx, setPreviewIdx] = useState<number | null>(null);
+  const [purchasedView, setPurchasedView] = useState<ContactRow | null>(null);
 
   if (!user || user.role !== "operator") return null;
   const sub = user.subscription;
@@ -108,21 +142,28 @@ export default function OperatorGroupDetailPage() {
   }
 
   const purchased = hasPurchased(tour.id, user.email);
-  const contacts = purchased ? MOCK_CONTACTS.slice(0, tour.maxMembers) : [];
+  const contacts = purchased ? MOCK_CONTACTS.slice(0, tour.currentMembers) : [];
   const countryByMember: Record<string, number> = {};
-  MOCK_CONTACTS.slice(0, tour.maxMembers).forEach((c) => {
+  MOCK_CONTACTS.slice(0, tour.currentMembers).forEach((c) => {
     countryByMember[`${c.countryFlag} ${c.country}`] =
       (countryByMember[`${c.countryFlag} ${c.country}`] ?? 0) + 1;
   });
 
-  // Validation rules from spec
+  // Purchase gates (MVP, 2026-05-28 decision):
+  //   1. Subscription active
+  //   2. Operator still has contacts left this month
+  //   3. Tour is closed (not open)
+  //   4. Tour starts at least 5 days from now (gives travelers time to react)
+  //
+  // Country is NOT a gate — it's a UI filter on the browse page only.
+  const daysToStart = daysUntilDate(tour.dateStart);
   const blockedReason: string | null = (() => {
     if (!canAccess) return "Subscription not active";
     if (sub && sub.contactsUsed >= sub.contactsLimit) return "Plan limit reached";
-    if (sub && !sub.countriesServed.includes(countryISO(tour.country))) {
-      return `${tour.country} not in your plan`;
-    }
     if (tour.status !== "closed") return "Tour is not yet closed";
+    if (daysToStart !== null && daysToStart < 5) {
+      return `Tour starts in ${daysToStart} day${daysToStart === 1 ? "" : "s"} — too late to contact`;
+    }
     return null;
   })();
 
@@ -133,7 +174,7 @@ export default function OperatorGroupDetailPage() {
     if (result) {
       setConfirming(false);
       setSuccess(true);
-      toast(`Unlocked ${tour.maxMembers} contacts.`, "success");
+      toast(`Unlocked ${tour.currentMembers} contacts.`, "success");
     } else {
       toast("Already purchased — refresh.", "info");
     }
@@ -171,7 +212,7 @@ export default function OperatorGroupDetailPage() {
               </BrutalBadge>
               <BrutalBadge variant="white">{tour.type.toUpperCase()}</BrutalBadge>
               <BrutalBadge variant="lime">
-                {tour.maxMembers} TRAVELERS
+                {tour.currentMembers} TRAVELERS
               </BrutalBadge>
             </div>
 
@@ -190,7 +231,7 @@ export default function OperatorGroupDetailPage() {
                 <Stat
                   icon={<Users className="w-6 h-6" strokeWidth={3} />}
                   label="TRAVELERS"
-                  value={`${tour.maxMembers} people`}
+                  value={`${tour.currentMembers} people`}
                 />
                 <Stat
                   icon={<Calendar className="w-6 h-6" strokeWidth={3} />}
@@ -222,12 +263,51 @@ export default function OperatorGroupDetailPage() {
                 ))}
               </div>
               {!purchased && operatorsContacted > 0 && (
-                <p className="font-bold uppercase text-xs mt-5 text-[#FF6B9D]">
-                  ⚡ {operatorsContacted} operator{operatorsContacted === 1 ? "" : "s"}{" "}
+                <p className="font-bold uppercase text-xs mt-5 text-[#FF6B9D] flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5" strokeWidth={3} />
+                  {operatorsContacted} operator{operatorsContacted === 1 ? "" : "s"}{" "}
                   already contacted this group
                 </p>
               )}
             </div>
+
+            {/* Pre-purchase members preview — anonymous tiles, click for limited view */}
+            {!purchased && (
+              <div className="bg-white border-4 border-black p-6 md:p-8 shadow-[6px_6px_0_#000] mb-8">
+                <h3 className="text-xl font-black uppercase mb-2">
+                  MEMBERS PREVIEW
+                </h3>
+                <p className="font-medium text-sm text-[#666] mb-5">
+                  ★ Names hidden until you unlock — click any tile for a
+                  preview.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+                  {MOCK_CONTACTS.slice(0, tour.currentMembers).map((c, i) => (
+                    <button
+                      key={c.email}
+                      type="button"
+                      onClick={() => setPreviewIdx(i)}
+                      className="bg-[#FFF8E7] border-3 border-black p-3 text-center shadow-[3px_3px_0_#000] hover:bg-[#FFEB3B] transition-colors"
+                    >
+                      <div className="w-16 h-16 mx-auto mb-2 bg-white border-3 border-black overflow-hidden">
+                        {c.avatarUrl ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={c.avatarUrl}
+                            alt=""
+                            className="w-full h-full object-cover blur-sm"
+                          />
+                        ) : null}
+                      </div>
+                      <p className="font-black uppercase text-xs">
+                        Traveler #{i + 1}
+                      </p>
+                      <p className="font-bold text-xs mt-1">{c.countryFlag}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Contacts (visible after purchase) */}
             {purchased && contacts.length > 0 && (
@@ -235,7 +315,10 @@ export default function OperatorGroupDetailPage() {
                 <h2 className="text-2xl md:text-3xl font-black uppercase mb-6">
                   ★ TRAVELER CONTACTS
                 </h2>
-                <ContactList contacts={contacts} />
+                <ContactList
+                  contacts={contacts}
+                  onContactClick={(c) => setPurchasedView(c)}
+                />
                 <div className="mt-6 flex flex-col sm:flex-row gap-3">
                   <BrutalButton
                     variant="secondary"
@@ -280,8 +363,8 @@ export default function OperatorGroupDetailPage() {
                   )}
                   <div className="space-y-2 mb-6 text-sm font-medium">
                     <p>YOU&apos;LL RECEIVE:</p>
-                    <p>✓ {tour.maxMembers} names + countries</p>
-                    <p>✓ {tour.maxMembers} verified emails</p>
+                    <p>✓ {tour.currentMembers} names + countries</p>
+                    <p>✓ {tour.currentMembers} verified emails</p>
                     <p>✓ Phone numbers (where shared)</p>
                   </div>
 
@@ -338,7 +421,7 @@ export default function OperatorGroupDetailPage() {
           <strong>{tour.title}</strong>.
         </p>
         <ul className="space-y-2 text-sm mb-8">
-          <li>★ {tour.maxMembers} traveler emails</li>
+          <li>★ {tour.currentMembers} traveler emails</li>
           <li>★ Phones where shared</li>
           <li>★ Profile bios + languages</li>
         </ul>
@@ -362,6 +445,36 @@ export default function OperatorGroupDetailPage() {
         </div>
       </BrutalModal>
 
+      {/* Pre-purchase: anonymized profile view */}
+      {previewIdx !== null && (
+        <GroupProfileView
+          open={previewIdx !== null}
+          onClose={() => setPreviewIdx(null)}
+          user={contactToAuthUser(MOCK_CONTACTS[previewIdx])}
+          context="OPERATOR_PREVIEW"
+          previewIndex={previewIdx + 1}
+        />
+      )}
+
+      {/* Post-purchase: full profile view (with phone if shared) */}
+      {purchasedView && (
+        <GroupProfileView
+          open={!!purchasedView}
+          onClose={() => setPurchasedView(null)}
+          user={contactToAuthUser(purchasedView)}
+          context="OPERATOR_PURCHASED"
+          phoneSharedForTour={!!purchasedView.phone}
+          onReport={(reason) => {
+            submitReport({
+              reportedEmail: purchasedView.email,
+              reportedName: purchasedView.name,
+              reporterEmail: user.email,
+              reason,
+            });
+          }}
+        />
+      )}
+
       {/* Success modal — celebratory after purchase */}
       <BrutalModal
         open={success}
@@ -370,7 +483,7 @@ export default function OperatorGroupDetailPage() {
         size="sm"
       >
         <p className="font-medium mb-6">
-          {tour.maxMembers} traveler contacts are now visible. Reach out
+          {tour.currentMembers} traveler contacts are now visible. Reach out
           quickly — competitor operators may have unlocked the same group.
         </p>
         <BrutalButton
@@ -408,12 +521,22 @@ function Stat({
   );
 }
 
-function countryISO(name: string): string {
-  const map: Record<string, string> = {
-    BOLIVIA: "BO",
-    PERU: "PE",
-    CHILE: "CL",
-    ARGENTINA: "AR",
-  };
-  return map[name.toUpperCase()] ?? name;
+/**
+ * Best-effort parse of the friendly `dateStart` string ("May 15") and the
+ * number of whole days from today. Returns null when we can't parse it — in
+ * that case callers should NOT block (data shape will be cleaner once the
+ * backend stores ISO dates).
+ */
+function daysUntilDate(dateStart: string): number | null {
+  const thisYear = new Date().getFullYear();
+  // Try "May 15" → assume current year. Try ISO → use as-is.
+  const candidates = [dateStart, `${dateStart} ${thisYear}`, `${dateStart}, ${thisYear}`];
+  for (const c of candidates) {
+    const t = new Date(c).getTime();
+    if (!Number.isNaN(t)) {
+      const diffMs = t - Date.now();
+      return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    }
+  }
+  return null;
 }

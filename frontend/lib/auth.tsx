@@ -19,7 +19,12 @@ export interface OperatorSubscription {
   status: SubStatus;
   contactsUsed: number;
   contactsLimit: number;
-  countriesServed: string[]; // ISO codes
+  /**
+   * ISO country codes. INFORMATIVE ONLY in the MVP (2026-05-28 decision):
+   * country is a UI filter on the browse page, never a permission gate. Do not
+   * use to restrict access to groups, the purchase flow, or pricing.
+   */
+  countriesServed: string[];
   renewsAt: string; // ISO date string
   paymentFailed: boolean;
   isFoundingMember: boolean;
@@ -43,6 +48,12 @@ export interface AuthUser {
   dateOfBirth?: string; // ISO yyyy-mm-dd
   bio?: string;
   languages?: string[];
+  /** International phone (E.164-ish). Shown only when the user opts in per-tour. */
+  phone?: string;
+  /** Square avatar image, stored as a resized data URL (mock). */
+  avatarUrl?: string;
+  /** Up to 5 gallery photos, stored as resized data URLs (mock). Traveler-only feature. */
+  photos?: string[];
 
   // Operator-only
   companyName?: string;

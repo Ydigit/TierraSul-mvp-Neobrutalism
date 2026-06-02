@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { BrutalBadge } from "@/components/ui/brutal-badge";
 import { BrutalInput } from "@/components/ui/brutal-input";
 import { BrutalModal } from "@/components/ui/brutal-modal";
@@ -78,12 +79,26 @@ export default function AdminToursPage() {
     {
       key: "id",
       header: "ID",
-      render: (t) => <span className="font-bold text-sm">#{t.id}</span>,
+      render: (t) => (
+        <Link
+          href={`/tours/${t.id}`}
+          className="font-bold text-sm hover:underline decoration-2"
+        >
+          #{t.id}
+        </Link>
+      ),
     },
     {
       key: "title",
       header: "TITLE",
-      render: (t) => <span className="font-bold">{t.title}</span>,
+      render: (t) => (
+        <Link
+          href={`/tours/${t.id}`}
+          className="font-bold hover:underline decoration-2"
+        >
+          {t.title.length > 40 ? `${t.title.slice(0, 37)}…` : t.title}
+        </Link>
+      ),
     },
     {
       key: "country",
