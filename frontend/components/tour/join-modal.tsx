@@ -15,9 +15,61 @@ interface JoinModalProps {
   open: boolean;
   onClose: () => void;
   tour: Tour;
+  /**
+   * Number of operators who have already paid for contacts on this group.
+   * Drives the Charge-on-Exit messaging variant when the tour is closed.
+   */
+  operatorsContacted?: number;
 }
 
-export function JoinModal({ open, onClose, tour }: JoinModalProps) {
+/** Pick the Charge-on-Exit copy block based on current tour state. */
+function chargeOnExitMessage(
+  tour: Tour,
+  operatorsContacted: number
+): { tone: "info" | "warning"; body: React.ReactNode } {
+  if (tour.status !== "closed") {
+    return {
+      tone: "info",
+      body: (
+        <>
+          <strong>Joining is free.</strong> You can leave anytime while the
+          group is forming.
+        </>
+      ),
+    };
+  }
+  if (operatorsContacted === 0) {
+    return {
+      tone: "info",
+      body: (
+        <>
+          <strong>Joining is free.</strong> The group already closed but no
+          operators have contacted yet — you can still leave at no cost.
+        </>
+      ),
+    };
+  }
+  return {
+    tone: "warning",
+    body: (
+      <>
+        <strong>
+          ⚠ Operators have already paid to contact this group.
+        </strong>{" "}
+        Joining is still free, but if you leave later you&apos;ll need to
+        choose: pay a <strong>€5 exit fee</strong> OR allow continued data
+        sharing with operators.
+      </>
+    ),
+  };
+}
+
+export function JoinModal({
+  open,
+  onClose,
+  tour,
+  operatorsContacted = 0,
+}: JoinModalProps) {
   const { user } = useAuth();
   const { joinTour } = useStore();
   const { toast } = useToast();
@@ -86,6 +138,20 @@ export function JoinModal({ open, onClose, tour }: JoinModalProps) {
       }
       size="md"
     >
+      {/* Charge-on-Exit messaging — picks one of 3 variants by tour state. */}
+      {(() => {
+        const msg = chargeOnExitMessage(tour, operatorsContacted);
+        return (
+          <div
+            className={`border-4 border-black p-4 mb-6 shadow-[4px_4px_0_#000] ${
+              msg.tone === "warning" ? "bg-[#FF6B9D] text-black" : "bg-[#FFF8E7]"
+            }`}
+          >
+            <p className="font-medium text-sm">{msg.body}</p>
+          </div>
+        );
+      })()}
+
       <p className="font-medium mb-6">
         Operators who pay to access this group will see:
       </p>

@@ -19,6 +19,8 @@ import type { Tour } from "@/components/tour/tour-card";
 
 export const CLOSING_WINDOW_MS = 48 * 60 * 60 * 1000;
 export const REOPEN_MIN_DAYS_TO_START = 5;
+/** Grace-deficit recovery window: 24h after first dip to min-1 with no ops. */
+export const GRACE_DEFICIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export function isClosingSoon(t: Tour): boolean {
   if (t.status !== "open") return false;
@@ -74,10 +76,12 @@ export function formatCountdown(msLeft: number): string {
  */
 export function daysUntilStart(dateStart: string): number | null {
   const thisYear = new Date().getFullYear();
+  // Year-qualified candidates first — bare "Jul 10" is parsed as year 2001
+  // by Chromium, which would always look like the deep past.
   const candidates = [
-    dateStart,
     `${dateStart} ${thisYear}`,
     `${dateStart}, ${thisYear}`,
+    dateStart,
   ];
   for (const c of candidates) {
     const t = new Date(c).getTime();
@@ -88,15 +92,48 @@ export function daysUntilStart(dateStart: string): number | null {
   return null;
 }
 
-/** Per the reopen rules — pure function, no mutation. */
+/**
+ * Per the reopen rules — pure function, no mutation.
+ *
+ * Updated (2026-06-02) for Grace Deficit: a single missing seat (currentMembers
+ * === minMembers - 1) does NOT reopen. The group enters CLOSED-DEFICIT with a
+ * 24h recovery window instead. Only a deeper drop (< minMembers - 1) reopens.
+ */
 export function canReopen(
   t: Tour,
   operatorsContacted: number
 ): boolean {
   if (t.status !== "closed") return false;
-  if (t.currentMembers >= t.minMembers) return false;
+  // Grace deficit: one seat short is tolerated. Reopen only on deeper drops.
+  if (t.currentMembers >= t.minMembers - 1) return false;
   if (operatorsContacted > 0) return false;
   const d = daysUntilStart(t.dateStart);
   if (d === null) return false;
   return d > REOPEN_MIN_DAYS_TO_START;
+}
+
+/**
+ * True iff the group is in the 24h grace-deficit sub-state (one seat short,
+ * timer active, no operators yet). Operators see this exactly as CLOSED — the
+ * sub-state is intentionally invisible to them.
+ */
+export function isInGraceDeficit(
+  t: Tour,
+  operatorsContacted: number
+): boolean {
+  if (t.status !== "closed") return false;
+  if (t.currentMembers !== t.minMembers - 1) return false;
+  if (operatorsContacted > 0) return false;
+  if (!t.gracePeriodStartedAt) return false;
+  const elapsed =
+    Date.now() - new Date(t.gracePeriodStartedAt).getTime();
+  return elapsed < GRACE_DEFICIT_WINDOW_MS;
+}
+
+/** Milliseconds left in the grace-deficit window, or null if no timer. */
+export function graceDeficitMsLeft(t: Tour): number | null {
+  if (!t.gracePeriodStartedAt) return null;
+  const elapsed =
+    Date.now() - new Date(t.gracePeriodStartedAt).getTime();
+  return Math.max(0, GRACE_DEFICIT_WINDOW_MS - elapsed);
 }

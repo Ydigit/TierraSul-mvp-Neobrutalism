@@ -15,6 +15,7 @@ import { RequireRole } from "@/components/auth/require-role";
 import { useAuth } from "@/lib/auth";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/components/ui/toast";
+import { daysUntilStart } from "@/lib/group-state";
 import Link from "next/link";
 
 export default function TravelerDashboardPage() {
@@ -184,14 +185,31 @@ function DashboardContent() {
                     </p>
                   </Link>
                   <div className="border-t-3 border-black p-3 flex justify-end">
-                    <button
-                      onClick={() =>
-                        setConfirm({ type: "leave", tourId: tour.id })
-                      }
-                      className="font-bold uppercase text-xs hover:underline text-[#FF3B3B]"
-                    >
-                      LEAVE GROUP →
-                    </button>
+                    {(() => {
+                      const d = daysUntilStart(tour.dateStart);
+                      const blocked = d !== null && d <= 5;
+                      return (
+                        <button
+                          onClick={() =>
+                            !blocked &&
+                            setConfirm({ type: "leave", tourId: tour.id })
+                          }
+                          disabled={blocked}
+                          title={
+                            blocked && d !== null
+                              ? `This tour starts in ${d} day${d === 1 ? "" : "s"}. To cancel, contact the operators directly.`
+                              : undefined
+                          }
+                          className={`font-bold uppercase text-xs ${
+                            blocked
+                              ? "text-[#999] cursor-not-allowed"
+                              : "text-[#FF3B3B] hover:underline"
+                          }`}
+                        >
+                          {blocked ? "TOO LATE TO LEAVE" : "LEAVE GROUP →"}
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}

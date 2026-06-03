@@ -124,7 +124,7 @@ function ProfileForm() {
     [isOperator]
   );
 
-  // Real trip count from the store — only meaningful for travelers.
+  // Real tour count from the store — only meaningful for travelers.
   const tripCount = useMemo(
     () =>
       state.memberships.filter((m) => m.userEmail === user.email).length,
@@ -293,7 +293,7 @@ function ProfileForm() {
                     {tripCount}
                   </div>
                   <div className="font-bold uppercase text-xs mt-1">
-                    TRIPS JOINED
+                    TOURS JOINED
                   </div>
                   <div className="font-black uppercase text-[10px] mt-2 tracking-wider">
                     ★ {tripLevel.label}

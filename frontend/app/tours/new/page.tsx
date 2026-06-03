@@ -8,6 +8,7 @@ import { Header } from "@/components/shared/header";
 import { Footer } from "@/components/shared/footer";
 import { BrutalButton } from "@/components/ui/brutal-button";
 import { BrutalInput } from "@/components/ui/brutal-input";
+import { BrutalDatePicker } from "@/components/ui/brutal-date-picker";
 import { CityAutocomplete } from "@/components/ui/city-autocomplete";
 import { BrutalTextarea } from "@/components/ui/brutal-textarea";
 import { BrutalSelect } from "@/components/ui/brutal-select";
@@ -63,6 +64,12 @@ function CreateTourForm() {
   const [city, setCity] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  // Today + 5 days (rule: tours can't start sooner) — ISO yyyy-MM-dd.
+  const minStartDateIso = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 5);
+    return d.toISOString().slice(0, 10);
+  })();
   const [type, setType] = useState("");
   const [minP, setMinP] = useState("4");
   const [maxP, setMaxP] = useState("8");
@@ -217,20 +224,23 @@ function CreateTourForm() {
 
             <div className="grid md:grid-cols-2 gap-6">
               <FieldError msg={errors.startDate}>
-                <BrutalInput
-                  label="START DATE *"
-                  type="date"
+                <BrutalDatePicker
+                  label="START DATE"
+                  required
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  helper="Must be at least 5 days from today"
+                  onChange={setStartDate}
+                  min={minStartDateIso}
+                  helper="Must be at least 5 days from today · dd/mm/yyyy"
                 />
               </FieldError>
               <FieldError msg={errors.endDate}>
-                <BrutalInput
-                  label="END DATE *"
-                  type="date"
+                <BrutalDatePicker
+                  label="END DATE"
+                  required
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  onChange={setEndDate}
+                  min={startDate || minStartDateIso}
+                  helper="dd/mm/yyyy"
                 />
               </FieldError>
             </div>

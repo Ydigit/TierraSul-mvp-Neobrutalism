@@ -24,6 +24,14 @@ export interface Tour {
   minReachedAt?: string;
   /** ISO timestamp of when the group closed (max reached OR 48h elapsed). */
   closedAt?: string;
+  /**
+   * ISO timestamp set when the group dipped to `minMembers - 1` after closing
+   * with NO operators contacted. Marks entry into CLOSED-DEFICIT state. The
+   * sub-state lasts up to 24h — see `lib/group-state.ts` for transitions.
+   * Cleared in any direction (recovery, second leave that reopens, operator
+   * purchase, or 24h expiry).
+   */
+  gracePeriodStartedAt?: string;
   type: string;
   bgColor?: string;
   isHot?: boolean;

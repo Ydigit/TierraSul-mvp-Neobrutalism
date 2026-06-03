@@ -8,6 +8,7 @@ import {
   LogOut,
   ImageIcon,
   Flag,
+  Heart,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -19,6 +20,7 @@ const navItems = [
   { path: "/admin/tours", label: "Tours", icon: Activity },
   { path: "/admin/users", label: "Users", icon: Users },
   { path: "/admin/operators", label: "Operators", icon: Briefcase },
+  { path: "/admin/cohesion", label: "Cohesion", icon: Heart },
   {
     path: "/admin/moderation/photos",
     label: "Photos",

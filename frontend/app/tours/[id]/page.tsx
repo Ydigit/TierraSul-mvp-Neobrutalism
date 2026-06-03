@@ -20,6 +20,7 @@ import {
   isClosingSoon,
   closingWindowMsLeft,
   formatCountdown,
+  daysUntilStart,
 } from "@/lib/group-state";
 import { useStore } from "@/lib/store";
 import { useAuth, type AuthUser } from "@/lib/auth";
@@ -41,7 +42,7 @@ export default function TourDetailPage() {
   const router = useRouter();
   const id = params?.id;
   const { user } = useAuth();
-  const { toursById, allTours, isMember, membersOf, submitReport } =
+  const { toursById, allTours, isMember, membersOf, submitReport, state } =
     useStore();
   const { toast } = useToast();
   const [showJoin, setShowJoin] = useState(false);
@@ -76,7 +77,14 @@ export default function TourDetailPage() {
     tour.status === "expired" ||
     tour.status === "cancelled" ||
     tour.status === "completed";
-  const operatorsContacted = 0; // mock — real backend will surface this
+  // Real count from store purchases — drives Charge-on-Exit messaging variants.
+  const operatorsContacted = tour
+    ? state.purchases.filter((p) => p.tourId === tour.id).length
+    : 0;
+  // 5-day-to-start block: within the final window the leave flow is closed
+  // entirely (the user must contact operators directly).
+  const daysToStart = tour ? daysUntilStart(tour.dateStart) ?? Infinity : Infinity;
+  const leaveBlocked = Number.isFinite(daysToStart) && daysToStart <= 5;
 
   const similarTours = allTours
     .filter(
@@ -262,7 +270,7 @@ export default function TourDetailPage() {
 
             <div className="bg-white border-4 border-black p-8 shadow-[6px_6px_0_#000] mb-8">
               <h2 className="text-2xl font-black uppercase mb-4">
-                ABOUT THIS TRIP
+                ABOUT THIS TOUR
               </h2>
               <p className="font-medium leading-relaxed mb-4">
                 Looking to explore {tour.country.toLowerCase()} with a chill
@@ -422,11 +430,19 @@ export default function TourDetailPage() {
                       size="md"
                       className="w-full"
                       onClick={() => setShowLeave(true)}
+                      disabled={leaveBlocked}
+                      title={
+                        leaveBlocked
+                          ? `This tour starts in ${daysToStart} day${daysToStart === 1 ? "" : "s"}. To cancel, contact the operators directly.`
+                          : undefined
+                      }
                     >
                       LEAVE GROUP
                     </BrutalButton>
                     <p className="text-xs font-bold uppercase text-center mt-3">
-                      You&apos;re a member of this group
+                      {leaveBlocked
+                        ? `This tour starts in ${daysToStart}d — too late to leave. Contact operators directly.`
+                        : "You're a member of this group"}
                     </p>
                   </>
                 ) : tour.currentMembers >= tour.maxMembers ? (
@@ -444,7 +460,7 @@ export default function TourDetailPage() {
                       JOIN GROUP
                     </BrutalButton>
                     <p className="text-xs font-bold uppercase text-center">
-                      No deposit yet — just confirm your spot
+                      Free to join · leave terms shown in the next step
                     </p>
                   </>
                 )}
@@ -468,7 +484,12 @@ export default function TourDetailPage() {
         )}
       </div>
 
-      <JoinModal open={showJoin} onClose={() => setShowJoin(false)} tour={tour} />
+      <JoinModal
+        open={showJoin}
+        onClose={() => setShowJoin(false)}
+        tour={tour}
+        operatorsContacted={operatorsContacted}
+      />
       <LeaveModal
         open={showLeave}
         onClose={() => setShowLeave(false)}

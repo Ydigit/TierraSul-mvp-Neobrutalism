@@ -17,7 +17,11 @@ import {
 } from "react";
 import { mockTours } from "@/data/mock-data";
 import type { Tour } from "@/components/tour/tour-card";
-import { shouldAutoClose, canReopen } from "@/lib/group-state";
+import {
+  shouldAutoClose,
+  canReopen,
+  GRACE_DEFICIT_WINDOW_MS,
+} from "@/lib/group-state";
 
 export interface Membership {
   tourId: string;
@@ -67,6 +71,8 @@ export interface ProfileReport {
 interface TourTimerOverride {
   minReachedAt?: string;
   closedAt?: string;
+  /** ISO timestamp of entry into CLOSED-DEFICIT sub-state (24h window). */
+  gracePeriodStartedAt?: string;
 }
 
 interface StoreState {
@@ -220,6 +226,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         currentMembers,
         minReachedAt: timer.minReachedAt ?? base.minReachedAt,
         closedAt: timer.closedAt ?? base.closedAt,
+        gracePeriodStartedAt:
+          timer.gracePeriodStartedAt ?? base.gracePeriodStartedAt,
       };
     };
     const seeded = mockTours.map((t) => apply(t, true));
@@ -355,6 +363,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           nextTimer.closedAt = new Date().toISOString();
         }
 
+        // (c) Grace recovery: if we were in CLOSED-DEFICIT and a new join
+        // brings the count back to >= min, clear the grace timer.
+        const wasClosed =
+          nextForceClosed.includes(tourId) || baseTour.status === "closed";
+        if (
+          wasClosed &&
+          nextTimer.gracePeriodStartedAt &&
+          newCurrent >= baseTour.minMembers
+        ) {
+          delete nextTimer.gracePeriodStartedAt;
+        }
+
         return {
           ...s,
           memberships: nextMemberships,
@@ -407,13 +427,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         };
 
         if (canReopen(synthesized, operatorsContacted)) {
-          // Reopen: drop force-closed flag, drop closedAt. Keep minReachedAt
-          // gone so the next min-hit restarts a fresh 48h window.
+          // Reopen: drop force-closed flag, drop closedAt + grace timer. Keep
+          // minReachedAt gone so the next min-hit restarts a fresh 48h window.
           const nextTimer: TourTimerOverride = {
             ...(s.tourTimers[tourId] ?? {}),
           };
           delete nextTimer.minReachedAt;
           delete nextTimer.closedAt;
+          delete nextTimer.gracePeriodStartedAt;
           return {
             ...s,
             memberships: nextMemberships,
@@ -422,6 +443,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             ),
             tourTimers: { ...s.tourTimers, [tourId]: nextTimer },
           };
+        }
+
+        // Grace Deficit: a single-seat drop on a CLOSED group with 0 ops
+        // triggers the 24h recovery window instead of reopening.
+        const enteringGraceDeficit =
+          isClosed &&
+          operatorsContacted === 0 &&
+          newCurrent === baseTour.minMembers - 1 &&
+          !(s.tourTimers[tourId]?.gracePeriodStartedAt);
+        if (enteringGraceDeficit) {
+          const nextTimer: TourTimerOverride = {
+            ...(s.tourTimers[tourId] ?? {}),
+            gracePeriodStartedAt: new Date().toISOString(),
+          };
+          return {
+            ...s,
+            memberships: nextMemberships,
+            tourTimers: { ...s.tourTimers, [tourId]: nextTimer },
+          };
+        }
+
+        // Operator already purchased → grace timer becomes irrelevant.
+        if (isClosed && operatorsContacted > 0) {
+          const t = s.tourTimers[tourId];
+          if (t?.gracePeriodStartedAt) {
+            const nextTimer = { ...t };
+            delete nextTimer.gracePeriodStartedAt;
+            return {
+              ...s,
+              memberships: nextMemberships,
+              tourTimers: { ...s.tourTimers, [tourId]: nextTimer },
+            };
+          }
         }
 
         return { ...s, memberships: nextMemberships };
@@ -640,8 +694,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      if (toClose.length === 0) return s;
-      const newTimers = { ...s.tourTimers };
+      // Expire any grace-deficit timer past 24h — group stays CLOSED, just
+      // without an active recovery window.
+      let timersAfterGrace = s.tourTimers;
+      let graceExpired = false;
+      for (const [id, t] of Object.entries(s.tourTimers)) {
+        if (!t.gracePeriodStartedAt) continue;
+        const elapsed =
+          Date.now() - new Date(t.gracePeriodStartedAt).getTime();
+        if (elapsed >= GRACE_DEFICIT_WINDOW_MS) {
+          if (!graceExpired) {
+            timersAfterGrace = { ...s.tourTimers };
+            graceExpired = true;
+          }
+          const cleaned = { ...timersAfterGrace[id] };
+          delete cleaned.gracePeriodStartedAt;
+          timersAfterGrace[id] = cleaned;
+        }
+      }
+
+      if (toClose.length === 0 && !graceExpired) return s;
+      const newTimers = { ...timersAfterGrace };
       for (const c of toClose) {
         newTimers[c.id] = { ...(newTimers[c.id] ?? {}), closedAt: c.closedAt };
       }

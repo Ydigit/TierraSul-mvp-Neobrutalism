@@ -116,6 +116,14 @@ function SignInForm() {
             </BrutalButton>
           </form>
 
+          {/*
+            TODO (backend handoff): env-gate this whole block before first
+            production deploy. Either:
+              {process.env.NODE_ENV === 'development' && (<DemoButtons />)}
+            or with an explicit toggle:
+              {process.env.NEXT_PUBLIC_ENABLE_DEMO_MODE === 'true' && (<DemoButtons />)}
+            Reason: ENTER AS ADMIN etc. would otherwise be a public lockpick.
+          */}
           <div className="border-t-4 border-black pt-6 mb-6">
             <p className="font-black uppercase text-xs text-center mb-4 tracking-wider">
               ★ DEMO MODE — INSTANT ACCESS ★
