@@ -155,7 +155,7 @@ export default function ForOperatorsPage() {
             <h3 className="text-sm font-black uppercase mb-2">STARTER</h3>
             <div className="text-5xl font-black mb-4">€16.99</div>
             <p className="font-bold uppercase text-sm mb-6">
-              5 CONTACTS/MO · 1 COUNTRY
+              5 CONTACTS/MO
             </p>
             <BrutalButton href="/pricing" variant="secondary"
                 size="sm"
@@ -177,7 +177,7 @@ export default function ForOperatorsPage() {
             <h3 className="text-sm font-black uppercase mb-2">GROWTH</h3>
             <div className="text-5xl font-black mb-4">€59</div>
             <p className="font-bold uppercase text-sm mb-6">
-              30 CONTACTS · 3 COUNTRIES
+              30 CONTACTS/MO
             </p>
             <BrutalButton href="/pricing" variant="black" size="sm" className="w-full">
                 LEARN MORE
@@ -187,7 +187,7 @@ export default function ForOperatorsPage() {
             <h3 className="text-sm font-black uppercase mb-2">PRO</h3>
             <div className="text-5xl font-black mb-4">€129</div>
             <p className="font-bold uppercase text-sm mb-6">
-              100 CONTACTS · ALL COUNTRIES
+              100 CONTACTS/MO
             </p>
             <BrutalButton href="/pricing" variant="secondary"
                 size="sm"

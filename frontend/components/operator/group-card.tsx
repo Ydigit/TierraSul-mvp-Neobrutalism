@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Users, Calendar, Lock, Check } from "lucide-react";
+import { Users, Calendar, Lock, Check, Zap } from "lucide-react";
 import { BrutalBadge } from "../ui/brutal-badge";
 import { BrutalButton } from "../ui/brutal-button";
 import type { Tour } from "../tour/tour-card";
@@ -37,7 +37,8 @@ export function GroupCard({
         <div className="flex items-center gap-2">
           <Users className="w-4 h-4" strokeWidth={3} />
           <span className="font-bold text-sm">
-            {tour.maxMembers} TRAVELERS
+            {tour.currentMembers} TRAVELER
+            {tour.currentMembers === 1 ? "" : "S"}
           </span>
         </div>
 
@@ -61,8 +62,9 @@ export function GroupCard({
       </div>
 
       {operatorsContacted > 0 && !purchased && (
-        <p className="text-xs font-bold uppercase mb-4 text-[#FF6B9D]">
-          ⚡ {operatorsContacted} operator{operatorsContacted === 1 ? "" : "s"}{" "}
+        <p className="text-xs font-bold uppercase mb-4 text-[#FF6B9D] flex items-center gap-1">
+          <Zap className="w-3.5 h-3.5" strokeWidth={3} />
+          {operatorsContacted} operator{operatorsContacted === 1 ? "" : "s"}{" "}
           contacted
         </p>
       )}

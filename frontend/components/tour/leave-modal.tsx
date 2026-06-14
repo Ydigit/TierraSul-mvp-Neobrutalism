@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { BrutalModal } from "../ui/brutal-modal";
 import { BrutalButton } from "../ui/brutal-button";
 import { useAuth } from "@/lib/auth";
@@ -13,18 +14,24 @@ interface LeaveModalProps {
   onClose: () => void;
   tour: Tour;
   /**
-   * Whether at least one operator has already purchased contacts for this group.
-   * Used to surface the €10 leave fee for closed groups in the spec.
+   * Number of operators who have already purchased contacts. When ≥ 1 and
+   * the tour is closed, the leave flow forks into the €5 OR data-share
+   * choice (Charge-on-Exit, v2.0 product spec).
    */
   operatorsContacted?: number;
 }
 
 /**
- * 3 visual variants depending on tour status & operator interest:
- *  - Tour OPEN: simple "Are you sure?" confirmation
- *  - Tour CLOSED, 0 operators: warning that group may reopen
- *  - Tour CLOSED, ≥1 operators: explicit pay-or-share-data choice
+ * 3 visual variants by tour status × operator interest:
+ *   A — Tour OPEN          → "Are you sure?" + leave/cancel
+ *   B — CLOSED, 0 ops      → soft warning about possible reopen / deficit
+ *   C — CLOSED, ≥ 1 ops    → radio choice: €5 exit fee OR free + data share
+ *
+ * The 5-day-to-start block is enforced at the call site (the Leave button is
+ * disabled and the modal never opens).
  */
+type LeaveChoice = "pay" | "share-data";
+
 export function LeaveModal({
   open,
   onClose,
@@ -35,6 +42,14 @@ export function LeaveModal({
   const { leaveTour } = useStore();
   const { toast } = useToast();
   const router = useRouter();
+  const [choice, setChoice] = useState<LeaveChoice | null>(null);
+
+  // Cancel = discard: clear the radio selection on any close path. Explicit
+  // setChoice(null) was already wired on the Cancel button; this covers Esc
+  // and backdrop dismissals too.
+  useEffect(() => {
+    if (!open) setChoice(null);
+  }, [open]);
 
   if (!user) return null;
 
@@ -47,14 +62,16 @@ export function LeaveModal({
     leaveTour(tour.id, user.email);
     toast(
       paid
-        ? "You left the group. €10 fee applied."
+        ? "You left the group. €5 exit fee charged."
         : "You left the group.",
       "info"
     );
+    setChoice(null);
     onClose();
     router.refresh();
   };
 
+  // ── Variant A ─────────────────────────────────────────────────────────
   if (variant === "open") {
     return (
       <BrutalModal
@@ -64,10 +81,12 @@ export function LeaveModal({
         size="sm"
       >
         <p className="font-medium mb-8">
-          You can rejoin while the group has open spots. Your data will be
-          removed from this tour.
+          Are you sure you want to leave this group?
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
+          <BrutalButton variant="secondary" size="lg" onClick={onClose}>
+            CANCEL
+          </BrutalButton>
           <BrutalButton
             variant="danger"
             size="lg"
@@ -76,14 +95,12 @@ export function LeaveModal({
           >
             YES, LEAVE
           </BrutalButton>
-          <BrutalButton variant="secondary" size="lg" onClick={onClose}>
-            CANCEL
-          </BrutalButton>
         </div>
       </BrutalModal>
     );
   }
 
+  // ── Variant B ─────────────────────────────────────────────────────────
   if (variant === "closed-no-ops") {
     return (
       <BrutalModal
@@ -93,32 +110,30 @@ export function LeaveModal({
         size="md"
       >
         <div className="bg-[#FFEB3B] border-4 border-black p-5 mb-6">
-          <p className="font-bold uppercase text-sm">
-            ⚠️ This group is CLOSED.
-          </p>
-          <p className="font-medium text-sm mt-2">
-            If your departure drops members below the minimum, the group may
-            re-open and lose its priority.
+          <p className="font-medium text-sm">
+            This group already closed but no operators have contacted yet.
+            Depending on how much the group drops below minimum, it may stay
+            closed or reopen.
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
+          <BrutalButton variant="secondary" size="lg" onClick={onClose}>
+            CANCEL
+          </BrutalButton>
           <BrutalButton
             variant="danger"
             size="lg"
             className="flex-1"
             onClick={() => handleLeave(false)}
           >
-            LEAVE ANYWAY
-          </BrutalButton>
-          <BrutalButton variant="secondary" size="lg" onClick={onClose}>
-            STAY IN GROUP
+            YES, LEAVE
           </BrutalButton>
         </div>
       </BrutalModal>
     );
   }
 
-  // closed-with-ops: pay or share data
+  // ── Variant C ─────────────────────────────────────────────────────────
   return (
     <BrutalModal
       open={open}
@@ -128,61 +143,98 @@ export function LeaveModal({
     >
       <div className="bg-[#FF6B9D] border-4 border-black p-5 mb-6">
         <p className="font-black uppercase text-sm">
-          ⚠️ {operatorsContacted}{" "}
+          ⚠ {operatorsContacted}{" "}
           {operatorsContacted === 1 ? "operator has" : "operators have"} already
           paid to contact this group.
         </p>
         <p className="font-medium text-sm mt-2">
-          To leave, choose one option below:
+          Choose how to leave:
         </p>
       </div>
 
-      <div className="space-y-4 mb-6">
-        <div className="border-4 border-black p-5">
-          <h3 className="font-black uppercase text-base mb-2">
-            OPTION A — PAY €10
-          </h3>
-          <p className="font-medium text-sm mb-4">
-            Compensates operators for the unfulfilled contact. Your data is
-            removed immediately.
-          </p>
-          <BrutalButton
-            variant="primary"
-            size="md"
-            className="w-full"
-            onClick={() => handleLeave(true)}
-          >
-            PAY €10 AND LEAVE
-          </BrutalButton>
-        </div>
+      <fieldset className="space-y-3 mb-6">
+        <legend className="sr-only">Exit option</legend>
 
-        <div className="border-4 border-black p-5">
-          <h3 className="font-black uppercase text-base mb-2">
-            OPTION B — FREE (DATA STAYS)
-          </h3>
-          <p className="font-medium text-sm mb-4">
-            Operators who already paid keep your contact for this tour. You
-            won&apos;t be a member anymore.
-          </p>
-          <BrutalButton
-            variant="secondary"
-            size="md"
-            className="w-full"
-            onClick={() => handleLeave(false)}
-          >
-            LEAVE FREE (KEEP DATA SHARED)
-          </BrutalButton>
-        </div>
+        <label
+          htmlFor="leave-choice-pay"
+          className={`block border-4 border-black p-4 cursor-pointer transition-all ${
+            choice === "pay"
+              ? "bg-[#FFEB3B] shadow-[4px_4px_0_#000]"
+              : "bg-white hover:bg-[#FFF8E7]"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <input
+              id="leave-choice-pay"
+              type="radio"
+              name="leave-choice"
+              value="pay"
+              checked={choice === "pay"}
+              onChange={() => setChoice("pay")}
+              className="w-5 h-5 mt-1 accent-black"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="font-black uppercase text-sm">PAY €5 EXIT FEE</p>
+              <p className="font-medium text-xs mt-1">
+                Removes your data from operators who haven&apos;t contacted you
+                yet.
+              </p>
+            </div>
+          </div>
+        </label>
+
+        <label
+          htmlFor="leave-choice-share"
+          className={`block border-4 border-black p-4 cursor-pointer transition-all ${
+            choice === "share-data"
+              ? "bg-[#FFEB3B] shadow-[4px_4px_0_#000]"
+              : "bg-white hover:bg-[#FFF8E7]"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <input
+              id="leave-choice-share"
+              type="radio"
+              name="leave-choice"
+              value="share-data"
+              checked={choice === "share-data"}
+              onChange={() => setChoice("share-data")}
+              className="w-5 h-5 mt-1 accent-black"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="font-black uppercase text-sm">
+                FREE EXIT WITH DATA SHARING
+              </p>
+              <p className="font-medium text-xs mt-1">
+                All operators (current and future) keep your contact data for
+                this tour.
+              </p>
+            </div>
+          </div>
+        </label>
+      </fieldset>
+
+      <div className="flex flex-col sm:flex-row gap-3">
+        <BrutalButton
+          variant="secondary"
+          size="lg"
+          onClick={() => {
+            setChoice(null);
+            onClose();
+          }}
+        >
+          CANCEL
+        </BrutalButton>
+        <BrutalButton
+          variant="danger"
+          size="lg"
+          className="flex-1"
+          disabled={choice === null}
+          onClick={() => handleLeave(choice === "pay")}
+        >
+          CONFIRM EXIT
+        </BrutalButton>
       </div>
-
-      <BrutalButton
-        variant="secondary"
-        size="md"
-        className="w-full"
-        onClick={onClose}
-      >
-        CANCEL
-      </BrutalButton>
     </BrutalModal>
   );
 }

@@ -12,13 +12,17 @@ export interface ContactRow {
   phone?: string;
   languages: string[];
   bio?: string;
+  avatarUrl?: string;
+  photos?: string[];
 }
 
 interface ContactListProps {
   contacts: ContactRow[];
+  /** When set, each contact gets a "View profile" button that opens the modal. */
+  onContactClick?: (contact: ContactRow) => void;
 }
 
-export function ContactList({ contacts }: ContactListProps) {
+export function ContactList({ contacts, onContactClick }: ContactListProps) {
   const { toast } = useToast();
 
   const copy = async (value: string, label: string) => {
@@ -44,7 +48,7 @@ export function ContactList({ contacts }: ContactListProps) {
                 {c.countryFlag} {c.country} · {c.age} years
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {c.languages.map((lang) => (
                 <span
                   key={lang}
@@ -53,6 +57,15 @@ export function ContactList({ contacts }: ContactListProps) {
                   {lang}
                 </span>
               ))}
+              {onContactClick && (
+                <button
+                  type="button"
+                  onClick={() => onContactClick(c)}
+                  className="bg-[#00E5FF] border-3 border-black px-3 py-1 font-bold uppercase text-xs shadow-[3px_3px_0_#000] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_#000] transition-all"
+                >
+                  VIEW PROFILE
+                </button>
+              )}
             </div>
           </div>
 

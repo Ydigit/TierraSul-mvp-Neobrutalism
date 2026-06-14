@@ -61,9 +61,15 @@ export default function OperatorContactsPage() {
       <div className="max-w-7xl mx-auto px-6 py-12">
         <SubscriptionBanner subscription={sub} />
 
-        <h1 className="text-5xl md:text-6xl font-black uppercase leading-none mb-12">
+        <h1 className="text-5xl md:text-6xl font-black uppercase leading-none mb-3">
           MY CONTACTS
         </h1>
+        <p className="font-medium text-sm md:text-base mb-12 max-w-3xl">
+          Every group you&apos;ve unlocked. Mark a deal as{" "}
+          <strong>closed</strong> after the traveler books — that&apos;s how
+          you track revenue. Everything else stays{" "}
+          <strong>in progress</strong>.
+        </p>
 
         <div className="grid sm:grid-cols-2 gap-6 mb-10">
           <div className="bg-[#00E5FF] border-4 border-black p-6 md:p-8 shadow-[8px_8px_0_#000]">
@@ -94,8 +100,8 @@ export default function OperatorContactsPage() {
               {f === "all"
                 ? `ALL (${purchases.length})`
                 : f === "closed"
-                  ? `CLOSED (${purchases.filter((p) => p.dealClosed).length})`
-                  : `PENDING (${purchases.filter((p) => !p.dealClosed).length})`}
+                  ? `DEAL CLOSED (${purchases.filter((p) => p.dealClosed).length})`
+                  : `IN PROGRESS (${purchases.filter((p) => !p.dealClosed).length})`}
             </button>
           ))}
         </div>
@@ -124,7 +130,7 @@ export default function OperatorContactsPage() {
                               {tour.countryFlag} {tour.country}
                             </span>
                             <span>·</span>
-                            <span>{tour.maxMembers} travelers</span>
+                            <span>{tour.currentMembers} travelers</span>
                             <span>·</span>
                             <span>
                               Tour: {tour.dateStart} – {tour.dateEnd}

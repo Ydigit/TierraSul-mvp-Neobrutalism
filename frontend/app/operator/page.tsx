@@ -22,10 +22,10 @@ export default function OperatorDashboardPage() {
   const canAccess = canOperatorAccessGroups(user);
   const firstName = user.companyName ?? user.name;
 
-  // New groups in plan countries
+  // New closed groups, regardless of country. Country is a UI filter on the
+  // browse page, not a plan permission (MVP decision 2026-05-28).
   const availableGroups = allTours
     .filter((t) => t.status === "closed")
-    .filter((t) => !sub || sub.countriesServed.includes(countryISO(t.country)))
     .filter((t) => !hasPurchased(t.id, user.email))
     .slice(0, 6);
 
@@ -242,12 +242,3 @@ function formatRelative(iso: string): string {
   });
 }
 
-function countryISO(name: string): string {
-  const map: Record<string, string> = {
-    BOLIVIA: "BO",
-    PERU: "PE",
-    CHILE: "CL",
-    ARGENTINA: "AR",
-  };
-  return map[name.toUpperCase()] ?? name;
-}

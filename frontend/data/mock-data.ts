@@ -1,5 +1,9 @@
 import { Tour } from "@/components/tour/tour-card";
 
+// Timestamps computed at import time so demos start with realistic countdowns.
+const hoursAgo = (h: number) =>
+  new Date(Date.now() - h * 60 * 60 * 1000).toISOString();
+
 export const mockTours: Tour[] = [
   {
     id: "1",
@@ -12,8 +16,11 @@ export const mockTours: Tour[] = [
     days: 4,
     price: 120,
     currentMembers: 4,
+    minMembers: 4,
     maxMembers: 6,
     status: "open",
+    // Just hit min ~12h ago → ~36h still on the clock
+    minReachedAt: hoursAgo(12),
     type: "Desert",
     bgColor: "#FFEB3B",
     isHot: true,
@@ -29,6 +36,7 @@ export const mockTours: Tour[] = [
     days: 5,
     price: 450,
     currentMembers: 2,
+    minMembers: 4,
     maxMembers: 8,
     status: "open",
     type: "Trek",
@@ -45,8 +53,11 @@ export const mockTours: Tour[] = [
     days: 3,
     price: 80,
     currentMembers: 5,
+    minMembers: 4,
     maxMembers: 5,
     status: "closed",
+    minReachedAt: hoursAgo(60),
+    closedAt: hoursAgo(48),
     type: "Desert",
     bgColor: "#FF6B9D",
   },
@@ -61,6 +72,7 @@ export const mockTours: Tour[] = [
     days: 8,
     price: 890,
     currentMembers: 3,
+    minMembers: 4,
     maxMembers: 6,
     status: "open",
     type: "Trek",
@@ -77,8 +89,11 @@ export const mockTours: Tour[] = [
     days: 4,
     price: 380,
     currentMembers: 6,
+    minMembers: 5,
     maxMembers: 8,
     status: "open",
+    // Window nearly out — ~1h 30m left
+    minReachedAt: hoursAgo(46.5),
     type: "Cultural",
     bgColor: "#00E5FF",
   },
@@ -93,6 +108,7 @@ export const mockTours: Tour[] = [
     days: 3,
     price: 150,
     currentMembers: 1,
+    minMembers: 4,
     maxMembers: 6,
     status: "open",
     type: "Wildlife",
@@ -109,8 +125,10 @@ export const mockTours: Tour[] = [
     days: 1,
     price: 65,
     currentMembers: 4,
+    minMembers: 4,
     maxMembers: 8,
     status: "open",
+    minReachedAt: hoursAgo(24),
     type: "Adventure",
     bgColor: "#FF6B9D",
   },
@@ -125,8 +143,10 @@ export const mockTours: Tour[] = [
     days: 1,
     price: 40,
     currentMembers: 7,
+    minMembers: 5,
     maxMembers: 10,
     status: "open",
+    minReachedAt: hoursAgo(36),
     type: "Trek",
     bgColor: "#C6FF00",
   },

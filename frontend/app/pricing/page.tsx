@@ -34,7 +34,7 @@ export default function PricingPage() {
               </li>
               <li className="flex items-start gap-2">
                 <Check className="w-5 h-5 mt-1 shrink-0" strokeWidth={3} />
-                <span className="font-medium">1 country access</span>
+                <span className="font-medium">Browse all countries</span>
               </li>
               <li className="flex items-start gap-2">
                 <Check className="w-5 h-5 mt-1 shrink-0" strokeWidth={3} />
@@ -76,7 +76,7 @@ export default function PricingPage() {
               </li>
               <li className="flex items-start gap-2">
                 <Check className="w-5 h-5 mt-1 shrink-0" strokeWidth={3} />
-                <span className="font-medium">3 countries access</span>
+                <span className="font-medium">Browse all countries</span>
               </li>
               <li className="flex items-start gap-2">
                 <Check className="w-5 h-5 mt-1 shrink-0" strokeWidth={3} />

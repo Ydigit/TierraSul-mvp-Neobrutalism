@@ -9,8 +9,10 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { BrutalBadge } from "@/components/ui/brutal-badge";
 import { AdminTable, type AdminColumn } from "@/components/admin/admin-table";
 import { ActionMenu } from "@/components/admin/action-menu";
+import { GroupProfileView } from "@/components/profile/group-profile-view";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/components/ui/toast";
+import type { AuthUser } from "@/lib/auth";
 
 type Tab = "all" | "travelers" | "operators" | "admins";
 const tabs: Tab[] = ["all", "travelers", "operators", "admins"];
@@ -24,6 +26,20 @@ interface UserRow {
   countryFlag: string;
   tours: number;
   joined: string;
+  // Full profile data — admin sees everything
+  city?: string;
+  age?: number;
+  phone?: string;
+  bio?: string;
+  languages?: string[];
+  avatarUrl?: string;
+  photos?: string[];
+  // Operator-only
+  companyName?: string;
+  website?: string;
+  description?: string;
+  lastLogin?: string;
+  ipCountry?: string;
 }
 
 const MOCK_USERS: UserRow[] = [
@@ -36,6 +52,18 @@ const MOCK_USERS: UserRow[] = [
     countryFlag: "🇪🇸",
     tours: 3,
     joined: "May 1, 2026",
+    city: "Barcelona",
+    age: 28,
+    phone: "+34 600 123 456",
+    bio: "Photographer, slow traveler. 3 months into South America.",
+    languages: ["en", "es"],
+    avatarUrl: "https://picsum.photos/seed/maria/200/200",
+    photos: [
+      "https://picsum.photos/seed/maria1/600/600",
+      "https://picsum.photos/seed/maria2/600/600",
+    ],
+    lastLogin: "2 hours ago",
+    ipCountry: "🇨🇱 Chile (Santiago)",
   },
   {
     id: "u2",
@@ -46,6 +74,14 @@ const MOCK_USERS: UserRow[] = [
     countryFlag: "🇬🇧",
     tours: 1,
     joined: "May 5, 2026",
+    city: "London",
+    age: 25,
+    bio: "Solo backpacker, into trekking.",
+    languages: ["en"],
+    avatarUrl: "https://picsum.photos/seed/john/200/200",
+    photos: ["https://picsum.photos/seed/john1/600/600"],
+    lastLogin: "Yesterday",
+    ipCountry: "🇬🇧 UK (London)",
   },
   {
     id: "u3",
@@ -56,6 +92,15 @@ const MOCK_USERS: UserRow[] = [
     countryFlag: "🇨🇱",
     tours: 0,
     joined: "Apr 15, 2026",
+    city: "San Pedro de Atacama",
+    phone: "+56 9 1234 5678",
+    languages: ["es", "en"],
+    companyName: "Atacama Tours",
+    website: "https://atacamatours.example.com",
+    description: "Family-run desert tours in San Pedro since 2018.",
+    avatarUrl: "https://picsum.photos/seed/atacama/200/200",
+    lastLogin: "5 minutes ago",
+    ipCountry: "🇨🇱 Chile (Atacama)",
   },
   {
     id: "u4",
@@ -66,6 +111,15 @@ const MOCK_USERS: UserRow[] = [
     countryFlag: "🇵🇪",
     tours: 0,
     joined: "Apr 10, 2026",
+    city: "Cusco",
+    phone: "+51 984 555 222",
+    languages: ["es", "en", "qu"],
+    companyName: "Inca Trail Co",
+    website: "https://incatrail.example.com",
+    description: "Classic Inca Trail + Salkantay treks with native guides.",
+    avatarUrl: "https://picsum.photos/seed/inca/200/200",
+    lastLogin: "1 hour ago",
+    ipCountry: "🇵🇪 Peru (Cusco)",
   },
   {
     id: "u5",
@@ -76,6 +130,11 @@ const MOCK_USERS: UserRow[] = [
     countryFlag: "🇪🇸",
     tours: 0,
     joined: "Jan 1, 2026",
+    city: "Madrid",
+    languages: ["en", "es", "pt"],
+    avatarUrl: "https://picsum.photos/seed/admin/200/200",
+    lastLogin: "Just now",
+    ipCountry: "🇪🇸 Spain (Madrid)",
   },
   {
     id: "u6",
@@ -86,6 +145,10 @@ const MOCK_USERS: UserRow[] = [
     countryFlag: "🏴",
     tours: 0,
     joined: "May 8, 2026",
+    bio: "asdf asdf",
+    languages: [],
+    lastLogin: "3 days ago",
+    ipCountry: "🏴 Unknown (TOR exit)",
   },
 ];
 
@@ -96,6 +159,7 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const [banModal, setBanModal] = useState<UserRow | null>(null);
   const [reason, setReason] = useState("");
+  const [profileView, setProfileView] = useState<UserRow | null>(null);
 
   const rows = useMemo(() => {
     let pool = MOCK_USERS;
@@ -198,15 +262,18 @@ export default function AdminUsersPage() {
       className: "text-right",
       render: (u) => {
         const banned = isBanned(u.email);
-        return (
-          <div className="flex justify-end">
-            <ActionMenu
-              ariaLabel={`Actions for ${u.name}`}
-              items={[
-                {
-                  label: "View profile",
-                  onClick: () => toast(`Open profile for ${u.email}`, "info"),
-                },
+        const isAdmin = u.role === "admin";
+        // Admins are never banneable or deletable from this UI — prevents
+        // accidental self-lockout and matches the principle that ops on
+        // peer-admins go through a separate elevated flow.
+        const items = [
+          {
+            label: "View profile",
+            onClick: () => setProfileView(u),
+          },
+          ...(isAdmin
+            ? []
+            : [
                 banned
                   ? {
                       label: "Unban",
@@ -220,22 +287,35 @@ export default function AdminUsersPage() {
                       onClick: () => setBanModal(u),
                       destructive: true,
                     },
-                {
-                  label: "Reset password",
-                  onClick: () =>
-                    toast(`Password reset email sent to ${u.email}`, "info"),
-                },
-                {
-                  label: "Send email",
-                  onClick: () => toast(`Compose email to ${u.email}`, "info"),
-                },
+              ]),
+          {
+            label: "Reset password",
+            onClick: () =>
+              toast(`Password reset email sent to ${u.email}`, "info"),
+          },
+          {
+            label: "Send email",
+            onClick: () => toast(`Compose email to ${u.email}`, "info"),
+          },
+          ...(isAdmin
+            ? []
+            : [
                 {
                   label: "Delete (GDPR)",
                   onClick: () =>
-                    toast(`Delete request created for ${u.email}`, "info"),
+                    toast(
+                      `Delete request created for ${u.email}`,
+                      "info"
+                    ),
                   destructive: true,
                 },
-              ]}
+              ]),
+        ];
+        return (
+          <div className="flex justify-end">
+            <ActionMenu
+              ariaLabel={`Actions for ${u.name}`}
+              items={items}
             />
           </div>
         );
@@ -329,6 +409,52 @@ export default function AdminUsersPage() {
           </BrutalButton>
         </div>
       </BrutalModal>
+
+      {profileView && (
+        <GroupProfileView
+          open={!!profileView}
+          onClose={() => setProfileView(null)}
+          user={{
+            ...rowToAuthUser(profileView),
+            status: isBanned(profileView.email) ? "banned" : "active",
+          }}
+          context="ADMIN"
+          adminMeta={{
+            joined: profileView.joined,
+            lastLogin: profileView.lastLogin,
+            ipCountry: profileView.ipCountry,
+            toursCount: profileView.tours,
+            banReason: isBanned(profileView.email)
+              ? "Policy violation (mock)"
+              : undefined,
+          }}
+        />
+      )}
     </>
   );
+}
+
+function rowToAuthUser(u: UserRow): AuthUser {
+  return {
+    id: u.id,
+    role: u.role,
+    email: u.email,
+    name: u.name,
+    emailVerified: true,
+    status: "active",
+    country: u.country,
+    city: u.city,
+    age: u.age,
+    phone: u.phone,
+    bio: u.bio,
+    languages: u.languages,
+    avatarUrl:
+      u.avatarUrl ??
+      `https://picsum.photos/seed/${encodeURIComponent(u.email)}/200/200`,
+    photos: u.photos,
+    // Operator-only
+    companyName: u.companyName,
+    website: u.website,
+    description: u.description,
+  };
 }

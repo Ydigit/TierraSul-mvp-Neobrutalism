@@ -24,14 +24,11 @@ export default function OperatorGroupsPage() {
 
   const visibleSet = useMemo(() => {
     if (!canAccess) return [];
+    // MVP: country is NOT a permission. Operators see closed groups from every
+    // country; the dropdown is a UI filter only.
     const closed = allTours.filter((t) => t.status === "closed");
-    const restricted = sub
-      ? closed.filter((t) =>
-          sub.countriesServed.includes(countryISO(t.country))
-        )
-      : closed;
-    return applyFilters(restricted, filters);
-  }, [allTours, filters, sub, canAccess]);
+    return applyFilters(closed, filters);
+  }, [allTours, filters, canAccess]);
 
   if (!user || user.role !== "operator") return null;
 
@@ -46,19 +43,15 @@ export default function OperatorGroupsPage() {
           AVAILABLE<br />GROUPS
         </h1>
         <p className="text-lg md:text-xl font-medium mb-12">
-          {sub
-            ? `${visibleSet.length} groups available across ${sub.countriesServed.length} ${sub.countriesServed.length === 1 ? "country" : "countries"} on your plan`
+          {canAccess
+            ? `${visibleSet.length} groups available — filter to narrow down`
             : "Subscribe to access groups"}
         </p>
 
         {canAccess ? (
           <>
             <div className="bg-white border-4 border-black p-6 shadow-[6px_6px_0_#000] mb-12">
-              <TourFilters
-                values={filters}
-                onChange={setFilters}
-                allowedCountries={sub?.countriesServed}
-              />
+              <TourFilters values={filters} onChange={setFilters} />
             </div>
 
             {visibleSet.length > 0 ? (
@@ -96,12 +89,3 @@ export default function OperatorGroupsPage() {
   );
 }
 
-function countryISO(name: string): string {
-  const map: Record<string, string> = {
-    BOLIVIA: "BO",
-    PERU: "PE",
-    CHILE: "CL",
-    ARGENTINA: "AR",
-  };
-  return map[name.toUpperCase()] ?? name;
-}

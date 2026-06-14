@@ -61,10 +61,22 @@ function SignUpForm() {
 
   const formValid = (() => {
     if (!agreed || !email.trim() || !name.trim() || !password) return false;
+    if (password.length < 8) return false;
     if (!country) return false;
     if (role === "traveler" && !dateOfBirth) return false;
     if (role === "operator" && !companyName.trim()) return false;
     return true;
+  })();
+
+  const passwordStrength = (() => {
+    if (!password) return null;
+    if (password.length < 8) return { label: "TOO SHORT", color: "#FF3B3B" };
+    const hasMixedCase = /[a-z]/.test(password) && /[A-Z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    if (password.length >= 12 && (hasMixedCase || hasNumber)) {
+      return { label: "STRONG", color: "#00C853" };
+    }
+    return { label: "OK", color: "#FFEB3B" };
   })();
 
   const submit = (e: React.FormEvent) => {
@@ -203,14 +215,31 @@ function SignUpForm() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                 />
-                <BrutalInput
-                  label="PASSWORD"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
+                <div>
+                  <BrutalInput
+                    label="PASSWORD"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    minLength={8}
+                    required
+                    helper="At least 8 characters."
+                  />
+                  {password && password.length < 8 && (
+                    <p className="text-[#FF3B3B] font-bold text-xs mt-2">
+                      ⚠ Password must be at least 8 characters.
+                    </p>
+                  )}
+                  {passwordStrength && password.length >= 8 && (
+                    <p
+                      className="font-black uppercase text-xs mt-2 inline-block px-2 py-0.5 border-2 border-black"
+                      style={{ backgroundColor: passwordStrength.color }}
+                    >
+                      {passwordStrength.label}
+                    </p>
+                  )}
+                </div>
 
                 {role === "operator" && (
                   <>

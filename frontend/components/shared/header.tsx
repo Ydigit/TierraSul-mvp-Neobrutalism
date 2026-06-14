@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { BrutalButton } from "../ui/brutal-button";
 import { AvatarMenu } from "../ui/avatar-menu";
 import { useAuth } from "@/lib/auth";
@@ -8,6 +9,48 @@ import { useAuth } from "@/lib/auth";
 interface HeaderProps {
   /** Fallback variant — only consulted when no user is signed in. */
   variant?: "public" | "traveler" | "operator" | "admin";
+}
+
+interface NavLinkProps {
+  href: string;
+  /**
+   * Active when the URL path matches one of these prefixes (on a path-boundary).
+   * Falls back to `[href]` if absent.
+   */
+  match?: string[];
+  /**
+   * When true, ONLY exact path equality counts as active. Used by nav items
+   * whose href is a prefix of other items (e.g. "/operator" vs "/operator/groups").
+   */
+  exact?: boolean;
+  children: React.ReactNode;
+}
+
+/**
+ * Persistent nav link with a brutalist active state — the underline is
+ * always there when the current route matches, instead of only on hover.
+ */
+function NavLink({ href, match, exact, children }: NavLinkProps) {
+  const pathname = usePathname();
+  const targets = match ?? [href];
+  const isActive = targets.some((p) => {
+    if (exact) return pathname === p;
+    if (p === "/") return pathname === "/";
+    if (pathname === p) return true;
+    return pathname.startsWith(p + "/");
+  });
+  return (
+    <Link
+      href={href}
+      className={`font-bold uppercase text-sm decoration-4 underline-offset-4 ${
+        isActive
+          ? "underline text-black"
+          : "hover:underline text-black/80 hover:text-black"
+      }`}
+    >
+      {children}
+    </Link>
+  );
 }
 
 export function Header({ variant = "public" }: HeaderProps) {
@@ -28,24 +71,9 @@ export function Header({ variant = "public" }: HeaderProps) {
         {effective === "public" && (
           <>
             <div className="hidden md:flex items-center gap-8">
-              <Link
-                href="/tours"
-                className="font-bold uppercase text-sm hover:underline decoration-4"
-              >
-                Tours
-              </Link>
-              <Link
-                href="/for-operators"
-                className="font-bold uppercase text-sm hover:underline decoration-4"
-              >
-                For Operators
-              </Link>
-              <Link
-                href="/pricing"
-                className="font-bold uppercase text-sm hover:underline decoration-4"
-              >
-                Pricing
-              </Link>
+              <NavLink href="/tours">Tours</NavLink>
+              <NavLink href="/for-operators">For Operators</NavLink>
+              <NavLink href="/pricing">Pricing</NavLink>
             </div>
             <div className="flex items-center gap-3">
               <Link
@@ -64,18 +92,10 @@ export function Header({ variant = "public" }: HeaderProps) {
         {effective === "traveler" && (
           <>
             <div className="hidden md:flex items-center gap-8">
-              <Link
-                href="/dashboard"
-                className="font-bold uppercase text-sm hover:underline decoration-4"
-              >
-                Dashboard
-              </Link>
-              <Link
-                href="/tours"
-                className="font-bold uppercase text-sm hover:underline decoration-4"
-              >
+              <NavLink href="/dashboard">Dashboard</NavLink>
+              <NavLink href="/tours" match={["/tours"]}>
                 Browse
-              </Link>
+              </NavLink>
             </div>
             <div className="flex items-center gap-3">
               <BrutalButton href="/tours/new" variant="primary" size="sm">
@@ -89,30 +109,12 @@ export function Header({ variant = "public" }: HeaderProps) {
         {effective === "operator" && (
           <>
             <div className="hidden md:flex items-center gap-6">
-              <Link
-                href="/operator"
-                className="font-bold uppercase text-sm hover:underline decoration-4"
-              >
+              <NavLink href="/operator" exact>
                 Dashboard
-              </Link>
-              <Link
-                href="/operator/groups"
-                className="font-bold uppercase text-sm hover:underline decoration-4"
-              >
-                Browse
-              </Link>
-              <Link
-                href="/operator/contacts"
-                className="font-bold uppercase text-sm hover:underline decoration-4"
-              >
-                Contacts
-              </Link>
-              <Link
-                href="/operator/billing"
-                className="font-bold uppercase text-sm hover:underline decoration-4"
-              >
-                Billing
-              </Link>
+              </NavLink>
+              <NavLink href="/operator/groups">Browse</NavLink>
+              <NavLink href="/operator/contacts">Contacts</NavLink>
+              <NavLink href="/operator/billing">Billing</NavLink>
             </div>
             <div className="flex items-center gap-3">
               {sub && sub.status !== "ended" && (
@@ -137,12 +139,7 @@ export function Header({ variant = "public" }: HeaderProps) {
 
         {effective === "admin" && (
           <div className="flex items-center gap-3">
-            <Link
-              href="/admin"
-              className="hidden sm:inline font-bold uppercase text-sm hover:underline decoration-4"
-            >
-              Admin Panel
-            </Link>
+            <NavLink href="/admin">Admin Panel</NavLink>
             <AvatarMenu />
           </div>
         )}

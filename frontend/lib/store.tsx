@@ -5,6 +5,28 @@
  * Provides the in-memory model for tours, memberships, purchases and deals
  * so all flows feel real before the backend exists. When Supabase/API arrives,
  * the mutation helpers swap to fetch calls and the rest of the app stays put.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SECURITY (frontend-only MVP)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Every mutation in this provider is CLIENT-SIDE ONLY. There is no server
+ * authority today — a sufficiently motivated user can edit `localStorage`
+ * and grant themselves admin powers, ban other users, force-close any tour,
+ * etc. This is acceptable ONLY while we are in the frontend-only development
+ * phase; it is not a finished product.
+ *
+ * When the backend (Supabase) is wired up, EVERY admin / operator / traveler
+ * mutation below must be guarded server-side:
+ *   • Admin actions (banUser, deletePhotoUploadEntry, markPhotoReviewed,
+ *     resolveReport, cancelTour, deleteTour, forceCloseTour,
+ *     toggleOperatorReviewed) — RLS policy + role assertion.
+ *   • Operator actions (purchaseContacts, setDealClosed) — RLS policy +
+ *     subscription gate.
+ *   • Traveler actions (createTour, joinTour, leaveTour, updateTour,
+ *     submitReport, logPhotoUploads) — RLS policy + ownership / membership
+ *     check.
+ * The flow described in BUSINESS_LOGIC_FLOW.md §8 covers the handoff plan.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import {
@@ -17,6 +39,11 @@ import {
 } from "react";
 import { mockTours } from "@/data/mock-data";
 import type { Tour } from "@/components/tour/tour-card";
+import {
+  shouldAutoClose,
+  canReopen,
+  GRACE_DEFICIT_WINDOW_MS,
+} from "@/lib/group-state";
 
 export interface Membership {
   tourId: string;
@@ -41,15 +68,48 @@ export interface AdminBan {
   bannedAt: string;
 }
 
+export interface PhotoUploadLog {
+  id: string;
+  userEmail: string;
+  userName: string;
+  photoUrl: string;
+  uploadedAt: string;
+  /** Set when admin marks the upload as reviewed (tracking only — doesn't block). */
+  reviewedAt?: string;
+}
+
+export interface ProfileReport {
+  id: string;
+  reportedEmail: string;
+  reportedName: string;
+  reporterEmail: string;
+  reason: string;
+  createdAt: string;
+  /** Set when admin closes the report. */
+  resolvedAt?: string;
+}
+
+/** Per-tour timer overrides set by mutations. Layered on top of the seed. */
+interface TourTimerOverride {
+  minReachedAt?: string;
+  closedAt?: string;
+  /** ISO timestamp of entry into CLOSED-DEFICIT sub-state (24h window). */
+  gracePeriodStartedAt?: string;
+}
+
 interface StoreState {
   customTours: Tour[];
   cancelledTourIds: string[];
   deletedTourIds: string[];
   forceClosedTourIds: string[];
+  /** Set by the timer reset on reopen — id is removed instead of just filtering ids. */
+  tourTimers: Record<string, TourTimerOverride>;
   memberships: Membership[];
   purchases: Purchase[];
   bans: AdminBan[];
   reviewedOperatorEmails: string[];
+  photoUploadLog: PhotoUploadLog[];
+  reports: ProfileReport[];
 }
 
 const STORAGE_KEY = "tierrasul:store";
@@ -59,6 +119,7 @@ const INITIAL: StoreState = {
   cancelledTourIds: [],
   deletedTourIds: [],
   forceClosedTourIds: [],
+  tourTimers: {},
   memberships: [
     // Demo: traveler is already a member of tour #1
     {
@@ -81,6 +142,8 @@ const INITIAL: StoreState = {
   ],
   bans: [],
   reviewedOperatorEmails: ["contact@atacama.com"],
+  photoUploadLog: [],
+  reports: [],
 };
 
 interface StoreContextValue {
@@ -110,6 +173,21 @@ interface StoreContextValue {
   isBanned: (email: string) => boolean;
   toggleOperatorReviewed: (email: string) => void;
   isOperatorReviewed: (email: string) => boolean;
+  // moderation
+  logPhotoUploads: (
+    userEmail: string,
+    userName: string,
+    photoUrls: string[]
+  ) => void;
+  markPhotoReviewed: (id: string) => void;
+  deletePhotoUploadEntry: (id: string) => void;
+  submitReport: (input: {
+    reportedEmail: string;
+    reportedName: string;
+    reporterEmail: string;
+    reason: string;
+  }) => void;
+  resolveReport: (id: string) => void;
   resetStore: () => void;
 }
 
@@ -132,6 +210,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setHydrated(true);
   }, []);
 
+  // Cross-tab sync: when another tab mutates the store, re-hydrate. The
+  // `storage` event only fires on OTHER tabs (not the writer), so this is a
+  // pure listener with no risk of self-recursion. Without this, two tabs of
+  // the same user diverge until one explicitly reloads.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY) return;
+      try {
+        if (e.newValue) {
+          const parsed = JSON.parse(e.newValue) as StoreState;
+          setState({ ...INITIAL, ...parsed });
+        } else {
+          setState(INITIAL);
+        }
+      } catch {
+        // ignore parse errors
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   useEffect(() => {
     if (!hydrated) return;
     try {
@@ -141,21 +241,46 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state, hydrated]);
 
+  /**
+   * Single source of truth for a tour's effective shape given current state.
+   * Layers seed/custom data with status overrides (cancel / force-close) and
+   * timer overrides (minReachedAt, closedAt) tracked by the store.
+   */
   const allTours = useMemo(() => {
-    const merged: Tour[] = mockTours.map((t) => {
-      let status = t.status;
-      if (state.cancelledTourIds.includes(t.id)) status = "cancelled";
-      else if (state.forceClosedTourIds.includes(t.id)) status = "closed";
-      const memberCount = state.memberships.filter((m) => m.tourId === t.id).length;
+    const apply = (base: Tour, isSeed: boolean): Tour => {
+      let status = base.status;
+      if (state.cancelledTourIds.includes(base.id)) status = "cancelled";
+      else if (state.forceClosedTourIds.includes(base.id)) status = "closed";
+      const memberCount = state.memberships.filter(
+        (m) => m.tourId === base.id
+      ).length;
       // memberships override the seeded count (so joins/leaves feel live)
-      const userJoined = memberCount > 0;
-      const currentMembers = userJoined
-        ? Math.min(t.currentMembers + (memberCount - (t.id === "1" ? 1 : 0)), t.maxMembers)
-        : t.currentMembers;
-      return { ...t, status, currentMembers };
-    });
-    const customs = state.customTours.filter((t) => !state.deletedTourIds.includes(t.id));
-    return [...customs, ...merged].filter((t) => !state.deletedTourIds.includes(t.id));
+      const seededDelta = isSeed && base.id === "1" ? 1 : 0;
+      const currentMembers =
+        memberCount > 0
+          ? Math.min(
+              base.currentMembers + (memberCount - seededDelta),
+              base.maxMembers
+            )
+          : base.currentMembers;
+      const timer = state.tourTimers[base.id] ?? {};
+      return {
+        ...base,
+        status,
+        currentMembers,
+        minReachedAt: timer.minReachedAt ?? base.minReachedAt,
+        closedAt: timer.closedAt ?? base.closedAt,
+        gracePeriodStartedAt:
+          timer.gracePeriodStartedAt ?? base.gracePeriodStartedAt,
+      };
+    };
+    const seeded = mockTours.map((t) => apply(t, true));
+    const customs = state.customTours
+      .filter((t) => !state.deletedTourIds.includes(t.id))
+      .map((t) => apply(t, false));
+    return [...customs, ...seeded].filter(
+      (t) => !state.deletedTourIds.includes(t.id)
+    );
   }, [state]);
 
   const toursById = useMemo(() => {
@@ -224,35 +349,184 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const joinTour = useCallback<StoreContextValue["joinTour"]>(
     (tourId, email, sharePhone, phone) => {
       setState((s) => {
-        if (s.memberships.some((m) => m.tourId === tourId && m.userEmail === email)) {
+        if (
+          s.memberships.some(
+            (m) => m.tourId === tourId && m.userEmail === email
+          )
+        ) {
           return s;
         }
+        const nextMemberships = [
+          ...s.memberships,
+          {
+            tourId,
+            userEmail: email,
+            joinedAt: new Date().toISOString(),
+            sharePhone,
+            phone: sharePhone ? phone : undefined,
+          },
+        ];
+
+        // Recompute what the tour will look like after this join, then check
+        // whether (a) we just crossed the min threshold (trip the 48h timer)
+        // or (b) we just hit max (close immediately).
+        const seedTour = mockTours.find((t) => t.id === tourId);
+        const customTour = s.customTours.find((t) => t.id === tourId);
+        const baseTour = customTour ?? seedTour;
+        if (!baseTour) return { ...s, memberships: nextMemberships };
+
+        const isSeed = !!seedTour;
+        const seededDelta = isSeed && tourId === "1" ? 1 : 0;
+        const memberCount = nextMemberships.filter((m) => m.tourId === tourId)
+          .length;
+        const newCurrent =
+          memberCount > 0
+            ? Math.min(
+                baseTour.currentMembers + (memberCount - seededDelta),
+                baseTour.maxMembers
+              )
+            : baseTour.currentMembers;
+
+        const existingTimer = s.tourTimers[tourId] ?? {};
+        const currentMinReached =
+          existingTimer.minReachedAt ?? baseTour.minReachedAt;
+        const nextTimer: TourTimerOverride = { ...existingTimer };
+        let nextForceClosed = s.forceClosedTourIds;
+
+        // (a) First time crossing the min threshold → start the clock.
+        if (!currentMinReached && newCurrent >= baseTour.minMembers) {
+          nextTimer.minReachedAt = new Date().toISOString();
+        }
+
+        // (b) Reaching max → close immediately.
+        if (
+          newCurrent >= baseTour.maxMembers &&
+          !nextForceClosed.includes(tourId)
+        ) {
+          nextForceClosed = [...nextForceClosed, tourId];
+          nextTimer.closedAt = new Date().toISOString();
+        }
+
+        // (c) Grace recovery: if we were in CLOSED-DEFICIT and a new join
+        // brings the count back to >= min, clear the grace timer.
+        const wasClosed =
+          nextForceClosed.includes(tourId) || baseTour.status === "closed";
+        if (
+          wasClosed &&
+          nextTimer.gracePeriodStartedAt &&
+          newCurrent >= baseTour.minMembers
+        ) {
+          delete nextTimer.gracePeriodStartedAt;
+        }
+
         return {
           ...s,
-          memberships: [
-            ...s.memberships,
-            {
-              tourId,
-              userEmail: email,
-              joinedAt: new Date().toISOString(),
-              sharePhone,
-              phone: sharePhone ? phone : undefined,
-            },
-          ],
+          memberships: nextMemberships,
+          tourTimers: { ...s.tourTimers, [tourId]: nextTimer },
+          forceClosedTourIds: nextForceClosed,
         };
       });
     },
     []
   );
 
-  const leaveTour = useCallback<StoreContextValue["leaveTour"]>((tourId, email) => {
-    setState((s) => ({
-      ...s,
-      memberships: s.memberships.filter(
-        (m) => !(m.tourId === tourId && m.userEmail === email)
-      ),
-    }));
-  }, []);
+  const leaveTour = useCallback<StoreContextValue["leaveTour"]>(
+    (tourId, email) => {
+      setState((s) => {
+        const nextMemberships = s.memberships.filter(
+          (m) => !(m.tourId === tourId && m.userEmail === email)
+        );
+        if (nextMemberships.length === s.memberships.length) return s;
+
+        // Evaluate reopen rule (single-step rollback only).
+        const seedTour = mockTours.find((t) => t.id === tourId);
+        const customTour = s.customTours.find((t) => t.id === tourId);
+        const baseTour = customTour ?? seedTour;
+        if (!baseTour) return { ...s, memberships: nextMemberships };
+
+        const isSeed = !!seedTour;
+        const seededDelta = isSeed && tourId === "1" ? 1 : 0;
+        const memberCount = nextMemberships.filter((m) => m.tourId === tourId)
+          .length;
+        const newCurrent =
+          memberCount > 0
+            ? Math.min(
+                baseTour.currentMembers + (memberCount - seededDelta),
+                baseTour.maxMembers
+              )
+            : baseTour.currentMembers;
+
+        const isClosed = s.forceClosedTourIds.includes(tourId) ||
+          baseTour.status === "closed";
+        const operatorsContacted = s.purchases.filter(
+          (p) => p.tourId === tourId
+        ).length;
+
+        // Reuse the pure helper. Pass a synthesized tour reflecting the
+        // post-leave state.
+        const synthesized: Tour = {
+          ...baseTour,
+          status: isClosed ? "closed" : baseTour.status,
+          currentMembers: newCurrent,
+        };
+
+        if (canReopen(synthesized, operatorsContacted)) {
+          // Reopen: drop force-closed flag, drop closedAt + grace timer. Keep
+          // minReachedAt gone so the next min-hit restarts a fresh 48h window.
+          const nextTimer: TourTimerOverride = {
+            ...(s.tourTimers[tourId] ?? {}),
+          };
+          delete nextTimer.minReachedAt;
+          delete nextTimer.closedAt;
+          delete nextTimer.gracePeriodStartedAt;
+          return {
+            ...s,
+            memberships: nextMemberships,
+            forceClosedTourIds: s.forceClosedTourIds.filter(
+              (id) => id !== tourId
+            ),
+            tourTimers: { ...s.tourTimers, [tourId]: nextTimer },
+          };
+        }
+
+        // Grace Deficit: a single-seat drop on a CLOSED group with 0 ops
+        // triggers the 24h recovery window instead of reopening.
+        const enteringGraceDeficit =
+          isClosed &&
+          operatorsContacted === 0 &&
+          newCurrent === baseTour.minMembers - 1 &&
+          !(s.tourTimers[tourId]?.gracePeriodStartedAt);
+        if (enteringGraceDeficit) {
+          const nextTimer: TourTimerOverride = {
+            ...(s.tourTimers[tourId] ?? {}),
+            gracePeriodStartedAt: new Date().toISOString(),
+          };
+          return {
+            ...s,
+            memberships: nextMemberships,
+            tourTimers: { ...s.tourTimers, [tourId]: nextTimer },
+          };
+        }
+
+        // Operator already purchased → grace timer becomes irrelevant.
+        if (isClosed && operatorsContacted > 0) {
+          const t = s.tourTimers[tourId];
+          if (t?.gracePeriodStartedAt) {
+            const nextTimer = { ...t };
+            delete nextTimer.gracePeriodStartedAt;
+            return {
+              ...s,
+              memberships: nextMemberships,
+              tourTimers: { ...s.tourTimers, [tourId]: nextTimer },
+            };
+          }
+        }
+
+        return { ...s, memberships: nextMemberships };
+      });
+    },
+    []
+  );
 
   const isMember = useCallback(
     (tourId: string, email: string) =>
@@ -350,6 +624,163 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [state.reviewedOperatorEmails]
   );
 
+  const logPhotoUploads = useCallback<StoreContextValue["logPhotoUploads"]>(
+    (userEmail, userName, photoUrls) => {
+      if (photoUrls.length === 0) return;
+      const now = new Date().toISOString();
+      const baseId = Date.now();
+      const entries: PhotoUploadLog[] = photoUrls.map((url, i) => ({
+        id: `pu-${baseId}-${i}`,
+        userEmail,
+        userName,
+        photoUrl: url,
+        uploadedAt: now,
+      }));
+      setState((s) => ({
+        ...s,
+        photoUploadLog: [...entries, ...s.photoUploadLog],
+      }));
+    },
+    []
+  );
+
+  const markPhotoReviewed = useCallback<
+    StoreContextValue["markPhotoReviewed"]
+  >((id) => {
+    const now = new Date().toISOString();
+    setState((s) => ({
+      ...s,
+      photoUploadLog: s.photoUploadLog.map((p) =>
+        p.id === id ? { ...p, reviewedAt: now } : p
+      ),
+    }));
+  }, []);
+
+  const deletePhotoUploadEntry = useCallback<
+    StoreContextValue["deletePhotoUploadEntry"]
+  >((id) => {
+    setState((s) => ({
+      ...s,
+      photoUploadLog: s.photoUploadLog.filter((p) => p.id !== id),
+    }));
+  }, []);
+
+  const submitReport = useCallback<StoreContextValue["submitReport"]>(
+    ({ reportedEmail, reportedName, reporterEmail, reason }) => {
+      const entry: ProfileReport = {
+        id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        reportedEmail,
+        reportedName,
+        reporterEmail,
+        reason,
+        createdAt: new Date().toISOString(),
+      };
+      setState((s) => ({ ...s, reports: [entry, ...s.reports] }));
+    },
+    []
+  );
+
+  const resolveReport = useCallback<StoreContextValue["resolveReport"]>(
+    (id) => {
+      const now = new Date().toISOString();
+      setState((s) => ({
+        ...s,
+        reports: s.reports.map((r) =>
+          r.id === id ? { ...r, resolvedAt: now } : r
+        ),
+      }));
+    },
+    []
+  );
+
+  /**
+   * Closes any tour whose 48h window has expired. Idempotent — safe to call
+   * on a timer. In a real backend this would be a cron; here a setInterval
+   * mounted alongside the provider keeps the demo coherent.
+   */
+  const tickGroupClosure = useCallback(() => {
+    setState((s) => {
+      const toClose: { id: string; closedAt: string }[] = [];
+      const now = new Date().toISOString();
+
+      // Walk seed + customs through the same derivation as allTours.
+      const candidates: { base: Tour; isSeed: boolean }[] = [
+        ...mockTours.map((t) => ({ base: t, isSeed: true })),
+        ...s.customTours.map((t) => ({ base: t, isSeed: false })),
+      ];
+
+      for (const { base, isSeed } of candidates) {
+        if (s.deletedTourIds.includes(base.id)) continue;
+        if (s.cancelledTourIds.includes(base.id)) continue;
+        if (s.forceClosedTourIds.includes(base.id)) continue;
+
+        const memberCount = s.memberships.filter(
+          (m) => m.tourId === base.id
+        ).length;
+        const seededDelta = isSeed && base.id === "1" ? 1 : 0;
+        const currentMembers =
+          memberCount > 0
+            ? Math.min(
+                base.currentMembers + (memberCount - seededDelta),
+                base.maxMembers
+              )
+            : base.currentMembers;
+        const timer = s.tourTimers[base.id] ?? {};
+        const synthesized: Tour = {
+          ...base,
+          currentMembers,
+          minReachedAt: timer.minReachedAt ?? base.minReachedAt,
+          closedAt: timer.closedAt ?? base.closedAt,
+          status: base.status,
+        };
+        if (shouldAutoClose(synthesized)) {
+          toClose.push({ id: base.id, closedAt: now });
+        }
+      }
+
+      // Expire any grace-deficit timer past 24h — group stays CLOSED, just
+      // without an active recovery window.
+      let timersAfterGrace = s.tourTimers;
+      let graceExpired = false;
+      for (const [id, t] of Object.entries(s.tourTimers)) {
+        if (!t.gracePeriodStartedAt) continue;
+        const elapsed =
+          Date.now() - new Date(t.gracePeriodStartedAt).getTime();
+        if (elapsed >= GRACE_DEFICIT_WINDOW_MS) {
+          if (!graceExpired) {
+            timersAfterGrace = { ...s.tourTimers };
+            graceExpired = true;
+          }
+          const cleaned = { ...timersAfterGrace[id] };
+          delete cleaned.gracePeriodStartedAt;
+          timersAfterGrace[id] = cleaned;
+        }
+      }
+
+      if (toClose.length === 0 && !graceExpired) return s;
+      const newTimers = { ...timersAfterGrace };
+      for (const c of toClose) {
+        newTimers[c.id] = { ...(newTimers[c.id] ?? {}), closedAt: c.closedAt };
+      }
+      return {
+        ...s,
+        forceClosedTourIds: [
+          ...s.forceClosedTourIds,
+          ...toClose.map((c) => c.id),
+        ],
+        tourTimers: newTimers,
+      };
+    });
+  }, []);
+
+  // Mount the global ticker: scan every 30s for tours whose window expired.
+  useEffect(() => {
+    if (!hydrated) return;
+    tickGroupClosure(); // run once on mount so a hot reload catches up
+    const id = window.setInterval(tickGroupClosure, 30_000);
+    return () => window.clearInterval(id);
+  }, [hydrated, tickGroupClosure]);
+
   const resetStore = useCallback(() => {
     setState(INITIAL);
   }, []);
@@ -378,6 +809,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       isBanned,
       toggleOperatorReviewed,
       isOperatorReviewed,
+      logPhotoUploads,
+      markPhotoReviewed,
+      deletePhotoUploadEntry,
+      submitReport,
+      resolveReport,
       resetStore,
     }),
     [
@@ -403,6 +839,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       isBanned,
       toggleOperatorReviewed,
       isOperatorReviewed,
+      logPhotoUploads,
+      markPhotoReviewed,
+      deletePhotoUploadEntry,
+      submitReport,
+      resolveReport,
       resetStore,
     ]
   );

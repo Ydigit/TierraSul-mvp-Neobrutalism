@@ -8,6 +8,8 @@ import { Header } from "@/components/shared/header";
 import { Footer } from "@/components/shared/footer";
 import { BrutalButton } from "@/components/ui/brutal-button";
 import { BrutalInput } from "@/components/ui/brutal-input";
+import { BrutalDatePicker } from "@/components/ui/brutal-date-picker";
+import { CityAutocomplete } from "@/components/ui/city-autocomplete";
 import { BrutalTextarea } from "@/components/ui/brutal-textarea";
 import { BrutalSelect } from "@/components/ui/brutal-select";
 import { countries, tourTypes, languages } from "@/data/mock-data";
@@ -42,6 +44,8 @@ interface FormErrors {
   type?: string;
   participants?: string;
   description?: string;
+  budget?: string;
+  languages?: string;
 }
 
 export default function CreateTourPage() {
@@ -62,6 +66,12 @@ function CreateTourForm() {
   const [city, setCity] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  // Today + 5 days (rule: tours can't start sooner) — ISO yyyy-MM-dd.
+  const minStartDateIso = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 5);
+    return d.toISOString().slice(0, 10);
+  })();
   const [type, setType] = useState("");
   const [minP, setMinP] = useState("4");
   const [maxP, setMaxP] = useState("8");
@@ -99,15 +109,34 @@ function CreateTourForm() {
     if (!type) e.type = "Pick a tour type";
     const minN = Number(minP);
     const maxN = Number(maxP);
-    if (!minN || !maxN || minN < 2 || maxN < 2) {
+    const HARD_MAX = 30; // sanity cap — no real group is 2222222 people
+    if (!Number.isFinite(minN) || !Number.isFinite(maxN)) {
+      e.participants = "Both fields are required";
+    } else if (minN < 2 || maxN < 2) {
       e.participants = "Min 2 people";
+    } else if (maxN > HARD_MAX) {
+      e.participants = `Max participants cannot exceed ${HARD_MAX}`;
     } else if (minN > maxN) {
       e.participants = "Min must be ≤ max";
+    } else if (!Number.isInteger(minN) || !Number.isInteger(maxN)) {
+      e.participants = "Whole numbers only";
     }
     if (description.trim().length < 30) {
       e.description = "Description must be at least 30 characters";
     } else if (description.trim().length > 2000) {
       e.description = "Max 2000 characters";
+    }
+    // Budget is optional; if present it must be a valid non-negative number.
+    if (budget !== "") {
+      const parsed = Number(budget);
+      if (!Number.isFinite(parsed)) {
+        e.budget = "Enter a valid number (e.g. 120)";
+      } else if (parsed < 0) {
+        e.budget = "Budget cannot be negative";
+      }
+    }
+    if (selectedLanguages.length === 0) {
+      e.languages = "Select at least one language";
     }
     return e;
   };
@@ -132,6 +161,8 @@ function CreateTourForm() {
             )
           )
         : 1;
+    // Budget passed validate(): empty → 0; else parsed number.
+    const finalBudget = budget === "" ? 0 : Number(budget);
     const tour = createTour({
       title: title.toUpperCase(),
       country: cInfo.name,
@@ -140,7 +171,8 @@ function CreateTourForm() {
       dateStart: formatDate(startDate),
       dateEnd: formatDate(endDate),
       days,
-      price: Number(budget) || 0,
+      price: finalBudget,
+      minMembers: Number(minP),
       maxMembers: Number(maxP),
       type: type[0].toUpperCase() + type.slice(1),
       bgColor: COLOR_BY_TYPE[type] ?? "#FFEB3B",
@@ -176,8 +208,9 @@ function CreateTourForm() {
                 label="TOUR TITLE *"
                 type="text"
                 placeholder="Salar de Uyuni 4D/3N"
-                helper="Be specific: include destination + duration"
+                helper={`Be specific: include destination + duration · ${title.length}/120`}
                 value={title}
+                maxLength={120}
                 onChange={(e) => setTitle(e.target.value)}
               />
             </FieldError>
@@ -187,35 +220,43 @@ function CreateTourForm() {
                 label="COUNTRY *"
                 options={countries.filter((c) => c.value !== "all")}
                 value={country}
-                onChange={(e) => setCountry(e.target.value)}
+                onChange={(e) => {
+                  setCountry(e.target.value);
+                  // Reset the city so stale matches don't carry over (e.g. "Uyuni"
+                  // typed under BO must not bleed into PE).
+                  setCity("");
+                }}
               />
               <FieldError msg={errors.city}>
-                <BrutalInput
+                <CityAutocomplete
                   label="CITY *"
-                  type="text"
-                  placeholder="Uyuni"
+                  country={country}
                   value={city}
-                  onChange={(e) => setCity(e.target.value)}
+                  onChange={setCity}
+                  placeholder="Uyuni"
                 />
               </FieldError>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
               <FieldError msg={errors.startDate}>
-                <BrutalInput
-                  label="START DATE *"
-                  type="date"
+                <BrutalDatePicker
+                  label="START DATE"
+                  required
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  helper="Must be at least 5 days from today"
+                  onChange={setStartDate}
+                  min={minStartDateIso}
+                  helper="Must be at least 5 days from today · dd/mm/yyyy"
                 />
               </FieldError>
               <FieldError msg={errors.endDate}>
-                <BrutalInput
-                  label="END DATE *"
-                  type="date"
+                <BrutalDatePicker
+                  label="END DATE"
+                  required
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  onChange={setEndDate}
+                  min={startDate || minStartDateIso}
+                  helper="dd/mm/yyyy"
                 />
               </FieldError>
             </div>
@@ -266,6 +307,8 @@ function CreateTourForm() {
                 label="MIN PARTICIPANTS *"
                 type="number"
                 min="2"
+                max="30"
+                step="1"
                 value={minP}
                 onChange={(e) => setMinP(e.target.value)}
               />
@@ -273,6 +316,8 @@ function CreateTourForm() {
                 label="MAX PARTICIPANTS *"
                 type="number"
                 min="2"
+                max="30"
+                step="1"
                 value={maxP}
                 onChange={(e) => setMaxP(e.target.value)}
               />
@@ -283,15 +328,17 @@ function CreateTourForm() {
               </p>
             )}
 
-            <BrutalInput
-              label="BUDGET PER PERSON (€)"
-              type="number"
-              min="0"
-              placeholder="120"
-              helper="Estimated cost per person — operators use this to gauge fit"
-              value={budget}
-              onChange={(e) => setBudget(e.target.value)}
-            />
+            <FieldError msg={errors.budget}>
+              <BrutalInput
+                label="BUDGET PER PERSON (€)"
+                type="number"
+                min="0"
+                placeholder="120"
+                helper="Estimated cost per person — operators use this to gauge fit"
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+              />
+            </FieldError>
 
             <FieldError msg={errors.description}>
               <BrutalTextarea
@@ -301,13 +348,14 @@ function CreateTourForm() {
                 onChange={(e) => setDescription(e.target.value)}
                 showCount
                 maxCount={2000}
+                maxLength={2000}
                 helper="30–2000 characters"
               />
             </FieldError>
 
             <div>
               <label className="block mb-3 font-bold uppercase text-sm">
-                LANGUAGES SPOKEN
+                LANGUAGES SPOKEN *
               </label>
               <div className="flex flex-wrap gap-3">
                 {languages.map((lang) => (
@@ -325,6 +373,11 @@ function CreateTourForm() {
                   </button>
                 ))}
               </div>
+              {errors.languages && (
+                <p className="text-[#FF3B3B] font-bold text-xs mt-2">
+                  ⚠ {errors.languages}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col sm:flex-row gap-4 pt-4">

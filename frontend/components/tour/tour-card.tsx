@@ -13,8 +13,25 @@ export interface Tour {
   days: number;
   price: number;
   currentMembers: number;
+  /** Threshold that triggers the 48h closing window when first reached. */
+  minMembers: number;
   maxMembers: number;
   status: "open" | "closed" | "expired" | "cancelled" | "completed" | "draft";
+  /**
+   * ISO timestamp of the moment the group first hit `minMembers`. Once set,
+   * NEVER resets (cumulative — see 2026-05-28 closing-window decision).
+   */
+  minReachedAt?: string;
+  /** ISO timestamp of when the group closed (max reached OR 48h elapsed). */
+  closedAt?: string;
+  /**
+   * ISO timestamp set when the group dipped to `minMembers - 1` after closing
+   * with NO operators contacted. Marks entry into CLOSED-DEFICIT state. The
+   * sub-state lasts up to 24h — see `lib/group-state.ts` for transitions.
+   * Cleared in any direction (recovery, second leave that reopens, operator
+   * purchase, or 24h expiry).
+   */
+  gracePeriodStartedAt?: string;
   type: string;
   bgColor?: string;
   isHot?: boolean;
@@ -30,13 +47,7 @@ export function TourCard({ tour, showStatus = false }: TourCardProps) {
 
   return (
     <Link href={`/tours/${tour.id}`}>
-      <div className="bg-white border-4 border-black shadow-[8px_8px_0_#000] hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-[5px_5px_0_#000] transition-all duration-100 cursor-pointer relative">
-        {tour.isHot && (
-          <div className="absolute -top-4 -right-4 bg-[#C6FF00] border-3 border-black w-20 h-20 rounded-full flex items-center justify-center font-black -rotate-12 shadow-[4px_4px_0_#000] text-xs z-10">
-            HOT!
-          </div>
-        )}
-
+      <div className="bg-white border-4 border-black shadow-[8px_8px_0_#000] hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-[5px_5px_0_#000] transition-all duration-100 cursor-pointer relative overflow-hidden">
         <div
           className="border-b-[3px] border-black h-48 relative flex items-center justify-center"
           style={{ backgroundColor: tour.bgColor || "#FFEB3B" }}
@@ -48,15 +59,22 @@ export function TourCard({ tour, showStatus = false }: TourCardProps) {
           <span className="absolute top-3 right-3 bg-[#FF6B9D] border-2 border-black px-3 py-1 text-sm font-bold">
             €{tour.price}
           </span>
-          {showStatus && tour.status !== "open" && (
+          {/* HOT and STATUS are mutually exclusive at the moment (isHot only fires
+              on open tours, status badge only renders when status !== "open"), so
+              they share the top-left slot. Status wins if both ever co-exist. */}
+          {showStatus && tour.status !== "open" ? (
             <span className="absolute top-3 left-3 bg-[#FF3B3B] border-2 border-black px-3 py-1 text-sm font-bold text-white uppercase">
               {tour.status}
             </span>
-          )}
+          ) : tour.isHot ? (
+            <span className="absolute top-3 left-3 bg-[#C6FF00] border-2 border-black px-3 py-1 text-sm font-black uppercase tracking-wide">
+              ★ HOT
+            </span>
+          ) : null}
         </div>
 
         <div className="p-6">
-          <h3 className="text-3xl font-black uppercase leading-none mb-3">
+          <h3 className="text-3xl font-black uppercase leading-tight mb-3 break-words overflow-hidden">
             {tour.title}
           </h3>
 

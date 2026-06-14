@@ -16,7 +16,7 @@ const spaceGrotesk = localFont({
 export const metadata: Metadata = {
   title: "TierraSul — Find your tribe. Travel together.",
   description:
-    "Group-matching marketplace for backpackers in South America. Form tour groups, pay €5 deposit, travel together.",
+    "Group-matching marketplace for backpackers in South America. Form tour groups, split costs, travel together.",
 };
 
 export default function RootLayout({

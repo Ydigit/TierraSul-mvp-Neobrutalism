@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Calendar, DollarSign, MapPin, Edit, Share2 } from "lucide-react";
+import { Calendar, DollarSign, MapPin, Edit, Share2, Hourglass } from "lucide-react";
 import { Header } from "@/components/shared/header";
 import { Footer } from "@/components/shared/footer";
 import { BrutalButton } from "@/components/ui/brutal-button";
@@ -11,21 +11,49 @@ import { BrutalBadge } from "@/components/ui/brutal-badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { TourProgress } from "@/components/tour/tour-progress";
 import { TourCard } from "@/components/tour/tour-card";
-import { MemberList } from "@/components/tour/member-list";
+import { MemberList, type Member } from "@/components/tour/member-list";
 import { JoinModal } from "@/components/tour/join-modal";
 import { LeaveModal } from "@/components/tour/leave-modal";
+import { GroupProfileView } from "@/components/profile/group-profile-view";
+import { displayName } from "@/lib/profile-view";
+import {
+  isClosingSoon,
+  closingWindowMsLeft,
+  formatCountdown,
+  daysUntilStart,
+} from "@/lib/group-state";
 import { useStore } from "@/lib/store";
-import { useAuth } from "@/lib/auth";
+import { useAuth, type AuthUser } from "@/lib/auth";
 import { useToast } from "@/components/ui/toast";
+
+/**
+ * Re-renders every `intervalMs` while `enabled` — used to tick the live
+ * countdown. Returns `null` during SSR and on the very first client paint so
+ * server HTML and the first client render agree; the tick kicks in only after
+ * mount. Callers should render a static placeholder when `now === null`.
+ */
+function useNow(enabled: boolean, intervalMs = 1000): number | null {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [enabled, intervalMs]);
+  return now;
+}
 
 export default function TourDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const id = params?.id;
   const { user } = useAuth();
-  const { toursById, allTours, isMember, membersOf } = useStore();
+  const { toursById, allTours, isMember, membersOf, submitReport, state } =
+    useStore();
   const { toast } = useToast();
   const [showJoin, setShowJoin] = useState(false);
   const [showLeave, setShowLeave] = useState(false);
+  const [viewingMember, setViewingMember] = useState<Member | null>(null);
 
   const tour = id ? toursById[id] : undefined;
 
@@ -55,7 +83,16 @@ export default function TourDetailPage() {
     tour.status === "expired" ||
     tour.status === "cancelled" ||
     tour.status === "completed";
-  const operatorsContacted = 0; // mock — real backend will surface this
+  // Real count from store purchases — drives Charge-on-Exit messaging variants.
+  const operatorsContacted = tour
+    ? state.purchases.filter((p) => p.tourId === tour.id).length
+    : 0;
+  // 5-day-to-start block: within the final window both the LEAVE flow and
+  // the JOIN flow are closed (members must contact operators directly; new
+  // joiners would arrive too late to influence the group).
+  const daysToStart = tour ? daysUntilStart(tour.dateStart) ?? Infinity : Infinity;
+  const leaveBlocked = Number.isFinite(daysToStart) && daysToStart <= 5;
+  const joinBlocked = leaveBlocked; // same window — see FIX #5 in audit doc
 
   const similarTours = allTours
     .filter(
@@ -67,28 +104,70 @@ export default function TourDetailPage() {
     .slice(0, 3);
 
   const memberRecords = membersOf(tour.id);
-  // Mock: blend store memberships with seed data names
-  const seededNames = [
-    { name: "Maria Silva", country: "Spain", flag: "🇪🇸", age: 28 },
-    { name: "John Smith", country: "UK", flag: "🇬🇧", age: 25 },
-    { name: "Yuki Tanaka", country: "Japan", flag: "🇯🇵", age: 30 },
-    { name: "Carlos Santos", country: "Brazil", flag: "🇧🇷", age: 27 },
-    { name: "Anna Mueller", country: "Germany", flag: "🇩🇪", age: 26 },
-    { name: "David Lee", country: "Australia", flag: "🇦🇺", age: 29 },
+  // Mock: blend store memberships with seed data names + richer fake profiles.
+  // Picsum URLs are stable placeholder photos — fine for demo.
+  const seededProfiles = [
+    {
+      name: "Maria Silva", country: "Spain", flag: "🇪🇸", age: 28,
+      bio: "Photographer, slow traveler. 3 months into South America.",
+      languages: ["en", "es"],
+      avatarUrl: "https://picsum.photos/seed/maria/200/200",
+      photos: ["https://picsum.photos/seed/maria1/600/600", "https://picsum.photos/seed/maria2/600/600"],
+    },
+    {
+      name: "John Smith", country: "UK", flag: "🇬🇧", age: 25,
+      bio: "Solo backpacker, into trekking.",
+      languages: ["en"],
+      avatarUrl: "https://picsum.photos/seed/john/200/200",
+      photos: ["https://picsum.photos/seed/john1/600/600"],
+    },
+    {
+      name: "Yuki Tanaka", country: "Japan", flag: "🇯🇵", age: 30,
+      bio: "First time in LatAm. Loves food markets.",
+      languages: ["en", "es"],
+      avatarUrl: "https://picsum.photos/seed/yuki/200/200",
+      photos: [],
+    },
+    {
+      name: "Carlos Santos", country: "Brazil", flag: "🇧🇷", age: 27,
+      bio: "Surfer + mountaineer. Always down for a campfire.",
+      languages: ["pt", "es", "en"],
+      avatarUrl: "https://picsum.photos/seed/carlos/200/200",
+      photos: ["https://picsum.photos/seed/carlos1/600/600", "https://picsum.photos/seed/carlos2/600/600", "https://picsum.photos/seed/carlos3/600/600"],
+    },
+    {
+      name: "Anna Mueller", country: "Germany", flag: "🇩🇪", age: 26,
+      bio: "On a gap year before med school.",
+      languages: ["de", "en"],
+      avatarUrl: "https://picsum.photos/seed/anna/200/200",
+      photos: ["https://picsum.photos/seed/anna1/600/600"],
+    },
+    {
+      name: "David Lee", country: "Australia", flag: "🇦🇺", age: 29,
+      bio: "Freelance dev, working remote while travelling.",
+      languages: ["en"],
+      avatarUrl: "https://picsum.photos/seed/david/200/200",
+      photos: [],
+    },
   ];
-  const filledMembers = Array.from({ length: tour.currentMembers }).map(
-    (_, i) => {
-      const m = memberRecords[i];
-      const seed = seededNames[i % seededNames.length];
-      return {
-        email: m?.userEmail ?? `member-${i}@example.com`,
-        name: user && m?.userEmail === user.email ? user.name : seed.name,
-        country: seed.country,
-        countryFlag: seed.flag,
-        age: seed.age,
-      };
-    }
-  );
+  const filledMembers: Member[] = Array.from({
+    length: tour.currentMembers,
+  }).map((_, i) => {
+    const m = memberRecords[i];
+    const seed = seededProfiles[i % seededProfiles.length];
+    const isCurrentUser = !!user && m?.userEmail === user.email;
+    return {
+      email: m?.userEmail ?? `member-${i}@example.com`,
+      name: isCurrentUser ? user.name : seed.name,
+      country: seed.country,
+      countryFlag: seed.flag,
+      age: seed.age,
+      bio: isCurrentUser ? user.bio : seed.bio,
+      languages: isCurrentUser ? user.languages : seed.languages,
+      avatarUrl: isCurrentUser ? user.avatarUrl : seed.avatarUrl,
+      photos: isCurrentUser ? user.photos : seed.photos,
+    };
+  });
 
   const share = async () => {
     const url = typeof window !== "undefined" ? window.location.href : "";
@@ -99,6 +178,21 @@ export default function TourDetailPage() {
       toast("Could not copy — select & copy manually", "error");
     }
   };
+
+  const memberToAuthUser = (m: Member): AuthUser => ({
+    id: m.email,
+    role: "traveler",
+    email: m.email,
+    name: m.name,
+    emailVerified: true,
+    status: "active",
+    country: m.country,
+    age: m.age,
+    bio: m.bio,
+    languages: m.languages,
+    avatarUrl: m.avatarUrl,
+    photos: m.photos,
+  });
 
   return (
     <div className="min-h-screen bg-[#FFF8E7]">
@@ -116,7 +210,11 @@ export default function TourDetailPage() {
           {" › "}
           <span className="text-[#FF6B9D]">{tour.country}</span>
           {" › "}
-          {tour.title}
+          <span className="break-words">
+            {tour.title.length > 60
+              ? `${tour.title.slice(0, 57)}…`
+              : tour.title}
+          </span>
         </div>
       </div>
 
@@ -158,7 +256,7 @@ export default function TourDetailPage() {
           {/* Main */}
           <div className="md:col-span-8">
             <div className="flex items-start justify-between gap-4 mb-6">
-              <h1 className="text-4xl md:text-6xl font-black uppercase leading-none">
+              <h1 className="text-4xl md:text-6xl font-black uppercase leading-none break-words min-w-0 flex-1">
                 {tour.title}
               </h1>
               <button
@@ -180,7 +278,7 @@ export default function TourDetailPage() {
 
             <div className="bg-white border-4 border-black p-8 shadow-[6px_6px_0_#000] mb-8">
               <h2 className="text-2xl font-black uppercase mb-4">
-                ABOUT THIS TRIP
+                ABOUT THIS TOUR
               </h2>
               <p className="font-medium leading-relaxed mb-4">
                 Looking to explore {tour.country.toLowerCase()} with a chill
@@ -203,15 +301,41 @@ export default function TourDetailPage() {
               )}
             </div>
 
-            {/* Member list visible only to actual members */}
-            {userIsMember && filledMembers.length > 0 && (
+            {/*
+              Member list visible to any authenticated traveler — joined or not.
+              Allows a "vibe check" before commitment. Anonymized name ("Ana S.")
+              and no contact info means privacy is still preserved.
+              Visitors (no session) still see nothing — only the country summary
+              above is public.
+            */}
+            {user?.role === "traveler" && filledMembers.length > 0 && (
               <div className="bg-[#C6FF00] border-4 border-black p-6 shadow-[8px_8px_0_#000] mb-8">
-                <h2 className="text-2xl font-black uppercase mb-5">
-                  ★ YOUR GROUP ({filledMembers.length})
-                </h2>
+                <div className="flex flex-wrap items-baseline gap-3 mb-5">
+                  <h2 className="text-2xl font-black uppercase">
+                    {userIsMember ? "★ YOUR GROUP" : "★ THE GROUP"} (
+                    {filledMembers.length})
+                  </h2>
+                  {!userIsMember && (
+                    <p className="font-bold uppercase text-xs text-[#666]">
+                      Click any member for a preview — no contact info shared
+                    </p>
+                  )}
+                </div>
                 <MemberList
                   members={filledMembers}
                   emptySlots={tour.maxMembers - tour.currentMembers}
+                  formatName={(m) =>
+                    user && m.email === user.email
+                      ? m.name
+                      : displayName(m.name, "OTHER_TRAVELER")
+                  }
+                  onMemberClick={(m) => {
+                    if (user && m.email === user.email) {
+                      router.push("/profile");
+                      return;
+                    }
+                    setViewingMember(m);
+                  }}
                 />
               </div>
             )}
@@ -225,6 +349,8 @@ export default function TourDetailPage() {
                   <h3 className="text-xl font-black uppercase">STATUS</h3>
                   <StatusBadge status={tour.status} />
                 </div>
+
+                <ClosingWindow tour={tour} />
 
                 <div className="mb-4">
                   <p className="font-black text-3xl mb-2">
@@ -312,11 +438,23 @@ export default function TourDetailPage() {
                       size="md"
                       className="w-full"
                       onClick={() => setShowLeave(true)}
+                      disabled={leaveBlocked}
+                      title={
+                        leaveBlocked
+                          ? Number.isFinite(daysToStart) && daysToStart > 0
+                            ? `This tour starts in ${daysToStart} day${daysToStart === 1 ? "" : "s"}. To cancel, contact the operators directly.`
+                            : "This tour has already started. To cancel, contact the operators directly."
+                          : undefined
+                      }
                     >
                       LEAVE GROUP
                     </BrutalButton>
                     <p className="text-xs font-bold uppercase text-center mt-3">
-                      You&apos;re a member of this group
+                      {leaveBlocked
+                        ? Number.isFinite(daysToStart) && daysToStart > 0
+                          ? `This tour starts in ${daysToStart}d — too late to leave. Contact operators directly.`
+                          : "Tour already started — too late to leave. Contact operators directly."
+                        : "You're a member of this group"}
                     </p>
                   </>
                 ) : tour.currentMembers >= tour.maxMembers ? (
@@ -330,11 +468,33 @@ export default function TourDetailPage() {
                       size="md"
                       className="w-full mb-3"
                       onClick={() => setShowJoin(true)}
+                      disabled={joinBlocked}
+                      title={
+                        joinBlocked
+                          ? Number.isFinite(daysToStart) && daysToStart > 0
+                            ? `This tour starts in ${daysToStart} day${daysToStart === 1 ? "" : "s"} — joining is closed. Browse other groups.`
+                            : "Tour has already started — joining is closed. Browse other groups."
+                          : undefined
+                      }
                     >
                       JOIN GROUP
                     </BrutalButton>
+                    {joinBlocked ? (
+                      <BrutalButton
+                        href="/tours"
+                        variant="secondary"
+                        size="md"
+                        className="w-full mb-3"
+                      >
+                        BROWSE OTHER GROUPS
+                      </BrutalButton>
+                    ) : null}
                     <p className="text-xs font-bold uppercase text-center">
-                      No deposit yet — just confirm your spot
+                      {joinBlocked
+                        ? Number.isFinite(daysToStart) && daysToStart > 0
+                          ? `This tour starts in ${daysToStart}d — joining is closed.`
+                          : "Tour already started — joining is closed."
+                        : "Free to join · leave terms shown in the next step"}
                     </p>
                   </>
                 )}
@@ -358,15 +518,65 @@ export default function TourDetailPage() {
         )}
       </div>
 
-      <JoinModal open={showJoin} onClose={() => setShowJoin(false)} tour={tour} />
+      <JoinModal
+        open={showJoin}
+        onClose={() => setShowJoin(false)}
+        tour={tour}
+        operatorsContacted={operatorsContacted}
+      />
       <LeaveModal
         open={showLeave}
         onClose={() => setShowLeave(false)}
         tour={tour}
         operatorsContacted={operatorsContacted}
       />
+      {viewingMember && (
+        <GroupProfileView
+          open={!!viewingMember}
+          onClose={() => setViewingMember(null)}
+          user={memberToAuthUser(viewingMember)}
+          context="OTHER_TRAVELER"
+          onReport={(reason) => {
+            submitReport({
+              reportedEmail: viewingMember.email,
+              reportedName: viewingMember.name,
+              reporterEmail: user?.email ?? "unknown@example.com",
+              reason,
+            });
+          }}
+        />
+      )}
 
       <Footer />
+    </div>
+  );
+}
+
+/**
+ * Live "OPEN (closing soon)" badge + 48h countdown. Only renders when the
+ * tour is actually inside its closing window. Re-renders every second so the
+ * countdown visibly moves.
+ */
+function ClosingWindow({ tour }: { tour: import("@/components/tour/tour-card").Tour }) {
+  const active = isClosingSoon(tour);
+  const now = useNow(active, 1000);
+  if (!active) return null;
+  // During SSR + first paint, `now` is null. Render a static "CLOSING SOON"
+  // placeholder so server HTML matches the first client render; once mounted
+  // the live countdown takes over and ticks every second.
+  const msLeft =
+    now === null ? null : Math.max(0, closingWindowMsLeft(tour) ?? 0);
+  return (
+    <div className="bg-[#FF6B9D] border-3 border-black px-3 py-2 mb-4 shadow-[3px_3px_0_#000] flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2 text-white">
+        <Hourglass className="w-4 h-4 shrink-0" strokeWidth={3} />
+        <p className="font-black uppercase text-xs tracking-wider">
+          CLOSING IN
+        </p>
+      </div>
+      <p className="font-black tabular-nums text-sm bg-white px-2 py-0.5 border-2 border-black">
+        {msLeft === null ? "SOON" : formatCountdown(msLeft)}
+      </p>
     </div>
   );
 }
