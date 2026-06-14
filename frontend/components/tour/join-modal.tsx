@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { BrutalModal } from "../ui/brutal-modal";
 import { BrutalButton } from "../ui/brutal-button";
@@ -10,6 +10,7 @@ import { useStore } from "@/lib/store";
 import { useToast } from "../ui/toast";
 import type { Tour } from "./tour-card";
 import { useRouter } from "next/navigation";
+import { daysUntilStart } from "@/lib/group-state";
 
 interface JoinModalProps {
   open: boolean;
@@ -77,6 +78,19 @@ export function JoinModal({
   const [sharePhone, setSharePhone] = useState(false);
   const [phone, setPhone] = useState("");
 
+  // Cancel = discard: reset state every time the modal transitions to closed.
+  useEffect(() => {
+    if (!open) {
+      setSharePhone(false);
+      setPhone("");
+    }
+  }, [open]);
+
+  // Defensive 5-day guard. The trigger button is also disabled at the call
+  // site, but a future caller might bypass it; render a blocking screen if so.
+  const d = daysUntilStart(tour.dateStart);
+  const joinTooLate = d !== null && d <= 5;
+
   if (!user) {
     return (
       <BrutalModal
@@ -123,6 +137,48 @@ export function JoinModal({
     onClose();
     router.refresh();
   };
+
+  if (joinTooLate) {
+    return (
+      <BrutalModal
+        open={open}
+        onClose={onClose}
+        title={
+          <span>
+            JOIN{" "}
+            <span className="bg-[#FF6B9D] px-2 border-3 border-black inline-block">
+              {tour.title}
+            </span>
+          </span>
+        }
+        size="md"
+      >
+        <div className="bg-[#FF6B9D] border-4 border-black p-5 mb-6">
+          <p className="font-black uppercase text-sm">
+            ⚠ JOINING IS CLOSED
+          </p>
+          <p className="font-medium text-sm mt-2">
+            {d !== null && d > 0
+              ? `This tour starts in ${d} day${d === 1 ? "" : "s"}. New travelers can no longer join — there isn't enough time to coordinate with the group and operators.`
+              : "This tour has already started. New travelers can no longer join."}
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <BrutalButton
+            href="/tours"
+            variant="primary"
+            size="lg"
+            className="flex-1"
+          >
+            BROWSE OTHER GROUPS
+          </BrutalButton>
+          <BrutalButton variant="secondary" size="lg" onClick={onClose}>
+            CLOSE
+          </BrutalButton>
+        </div>
+      </BrutalModal>
+    );
+  }
 
   return (
     <BrutalModal

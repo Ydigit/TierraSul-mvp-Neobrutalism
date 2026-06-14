@@ -5,6 +5,28 @@
  * Provides the in-memory model for tours, memberships, purchases and deals
  * so all flows feel real before the backend exists. When Supabase/API arrives,
  * the mutation helpers swap to fetch calls and the rest of the app stays put.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SECURITY (frontend-only MVP)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Every mutation in this provider is CLIENT-SIDE ONLY. There is no server
+ * authority today — a sufficiently motivated user can edit `localStorage`
+ * and grant themselves admin powers, ban other users, force-close any tour,
+ * etc. This is acceptable ONLY while we are in the frontend-only development
+ * phase; it is not a finished product.
+ *
+ * When the backend (Supabase) is wired up, EVERY admin / operator / traveler
+ * mutation below must be guarded server-side:
+ *   • Admin actions (banUser, deletePhotoUploadEntry, markPhotoReviewed,
+ *     resolveReport, cancelTour, deleteTour, forceCloseTour,
+ *     toggleOperatorReviewed) — RLS policy + role assertion.
+ *   • Operator actions (purchaseContacts, setDealClosed) — RLS policy +
+ *     subscription gate.
+ *   • Traveler actions (createTour, joinTour, leaveTour, updateTour,
+ *     submitReport, logPhotoUploads) — RLS policy + ownership / membership
+ *     check.
+ * The flow described in BUSINESS_LOGIC_FLOW.md §8 covers the handoff plan.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import {
@@ -186,6 +208,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // ignore
     }
     setHydrated(true);
+  }, []);
+
+  // Cross-tab sync: when another tab mutates the store, re-hydrate. The
+  // `storage` event only fires on OTHER tabs (not the writer), so this is a
+  // pure listener with no risk of self-recursion. Without this, two tabs of
+  // the same user diverge until one explicitly reloads.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY) return;
+      try {
+        if (e.newValue) {
+          const parsed = JSON.parse(e.newValue) as StoreState;
+          setState({ ...INITIAL, ...parsed });
+        } else {
+          setState(INITIAL);
+        }
+      } catch {
+        // ignore parse errors
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   useEffect(() => {

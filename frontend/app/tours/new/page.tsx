@@ -44,6 +44,8 @@ interface FormErrors {
   type?: string;
   participants?: string;
   description?: string;
+  budget?: string;
+  languages?: string;
 }
 
 export default function CreateTourPage() {
@@ -124,6 +126,18 @@ function CreateTourForm() {
     } else if (description.trim().length > 2000) {
       e.description = "Max 2000 characters";
     }
+    // Budget is optional; if present it must be a valid non-negative number.
+    if (budget !== "") {
+      const parsed = Number(budget);
+      if (!Number.isFinite(parsed)) {
+        e.budget = "Enter a valid number (e.g. 120)";
+      } else if (parsed < 0) {
+        e.budget = "Budget cannot be negative";
+      }
+    }
+    if (selectedLanguages.length === 0) {
+      e.languages = "Select at least one language";
+    }
     return e;
   };
 
@@ -147,6 +161,8 @@ function CreateTourForm() {
             )
           )
         : 1;
+    // Budget passed validate(): empty → 0; else parsed number.
+    const finalBudget = budget === "" ? 0 : Number(budget);
     const tour = createTour({
       title: title.toUpperCase(),
       country: cInfo.name,
@@ -155,7 +171,7 @@ function CreateTourForm() {
       dateStart: formatDate(startDate),
       dateEnd: formatDate(endDate),
       days,
-      price: Number(budget) || 0,
+      price: finalBudget,
       minMembers: Number(minP),
       maxMembers: Number(maxP),
       type: type[0].toUpperCase() + type.slice(1),
@@ -312,15 +328,17 @@ function CreateTourForm() {
               </p>
             )}
 
-            <BrutalInput
-              label="BUDGET PER PERSON (€)"
-              type="number"
-              min="0"
-              placeholder="120"
-              helper="Estimated cost per person — operators use this to gauge fit"
-              value={budget}
-              onChange={(e) => setBudget(e.target.value)}
-            />
+            <FieldError msg={errors.budget}>
+              <BrutalInput
+                label="BUDGET PER PERSON (€)"
+                type="number"
+                min="0"
+                placeholder="120"
+                helper="Estimated cost per person — operators use this to gauge fit"
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+              />
+            </FieldError>
 
             <FieldError msg={errors.description}>
               <BrutalTextarea
@@ -337,7 +355,7 @@ function CreateTourForm() {
 
             <div>
               <label className="block mb-3 font-bold uppercase text-sm">
-                LANGUAGES SPOKEN
+                LANGUAGES SPOKEN *
               </label>
               <div className="flex flex-wrap gap-3">
                 {languages.map((lang) => (
@@ -355,6 +373,11 @@ function CreateTourForm() {
                   </button>
                 ))}
               </div>
+              {errors.languages && (
+                <p className="text-[#FF3B3B] font-bold text-xs mt-2">
+                  ⚠ {errors.languages}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col sm:flex-row gap-4 pt-4">

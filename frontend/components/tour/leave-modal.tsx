@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BrutalModal } from "../ui/brutal-modal";
 import { BrutalButton } from "../ui/brutal-button";
 import { useAuth } from "@/lib/auth";
@@ -43,6 +43,13 @@ export function LeaveModal({
   const { toast } = useToast();
   const router = useRouter();
   const [choice, setChoice] = useState<LeaveChoice | null>(null);
+
+  // Cancel = discard: clear the radio selection on any close path. Explicit
+  // setChoice(null) was already wired on the Cancel button; this covers Esc
+  // and backdrop dismissals too.
+  useEffect(() => {
+    if (!open) setChoice(null);
+  }, [open]);
 
   if (!user) return null;
 

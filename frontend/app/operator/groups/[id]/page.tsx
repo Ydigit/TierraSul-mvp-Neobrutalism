@@ -16,6 +16,7 @@ import { GroupProfileView } from "@/components/profile/group-profile-view";
 import { useAuth, canOperatorAccessGroups, type AuthUser } from "@/lib/auth";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/components/ui/toast";
+import { daysUntilStart } from "@/lib/group-state";
 
 const MOCK_CONTACTS: ContactRow[] = [
   {
@@ -156,12 +157,13 @@ export default function OperatorGroupDetailPage() {
   //   4. Tour starts at least 5 days from now (gives travelers time to react)
   //
   // Country is NOT a gate — it's a UI filter on the browse page only.
-  const daysToStart = daysUntilDate(tour.dateStart);
+  const daysToStart = daysUntilStart(tour.dateStart);
   const blockedReason: string | null = (() => {
     if (!canAccess) return "Subscription not active";
     if (sub && sub.contactsUsed >= sub.contactsLimit) return "Plan limit reached";
     if (tour.status !== "closed") return "Tour is not yet closed";
     if (daysToStart !== null && daysToStart < 5) {
+      if (daysToStart <= 0) return "Tour has already started — too late to contact";
       return `Tour starts in ${daysToStart} day${daysToStart === 1 ? "" : "s"} — too late to contact`;
     }
     return null;
@@ -521,22 +523,3 @@ function Stat({
   );
 }
 
-/**
- * Best-effort parse of the friendly `dateStart` string ("May 15") and the
- * number of whole days from today. Returns null when we can't parse it — in
- * that case callers should NOT block (data shape will be cleaner once the
- * backend stores ISO dates).
- */
-function daysUntilDate(dateStart: string): number | null {
-  const thisYear = new Date().getFullYear();
-  // Try "May 15" → assume current year. Try ISO → use as-is.
-  const candidates = [dateStart, `${dateStart} ${thisYear}`, `${dateStart}, ${thisYear}`];
-  for (const c of candidates) {
-    const t = new Date(c).getTime();
-    if (!Number.isNaN(t)) {
-      const diffMs = t - Date.now();
-      return Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    }
-  }
-  return null;
-}

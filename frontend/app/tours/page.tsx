@@ -21,11 +21,11 @@ export default function BrowseToursPage() {
   const [filters, setFilters] = useState<TourFilterValues>(DEFAULT_FILTERS);
   const [visible, setVisible] = useState(PAGE_SIZE);
 
-  // Public browse: only show open tours that aren't deleted/cancelled/expired/completed.
+  // Public browse: only OPEN tours. Closed groups are not joinable, so showing
+  // them dilutes the inventory and contradicts the H1 ("OPEN GROUPS"). Operators
+  // see closed groups via /operator/groups (their own market).
   const visibleSet = useMemo(() => {
-    const browseable = allTours.filter(
-      (t) => t.status === "open" || t.status === "closed"
-    );
+    const browseable = allTours.filter((t) => t.status === "open");
     return applyFilters(browseable, filters);
   }, [allTours, filters]);
 

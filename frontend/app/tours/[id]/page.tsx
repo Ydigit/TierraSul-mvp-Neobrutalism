@@ -26,11 +26,17 @@ import { useStore } from "@/lib/store";
 import { useAuth, type AuthUser } from "@/lib/auth";
 import { useToast } from "@/components/ui/toast";
 
-/** Re-renders every `intervalMs` while `enabled` — used to tick the live countdown. */
-function useNow(enabled: boolean, intervalMs = 1000): number {
-  const [now, setNow] = useState(() => Date.now());
+/**
+ * Re-renders every `intervalMs` while `enabled` — used to tick the live
+ * countdown. Returns `null` during SSR and on the very first client paint so
+ * server HTML and the first client render agree; the tick kicks in only after
+ * mount. Callers should render a static placeholder when `now === null`.
+ */
+function useNow(enabled: boolean, intervalMs = 1000): number | null {
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     if (!enabled) return;
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), intervalMs);
     return () => window.clearInterval(id);
   }, [enabled, intervalMs]);
@@ -81,10 +87,12 @@ export default function TourDetailPage() {
   const operatorsContacted = tour
     ? state.purchases.filter((p) => p.tourId === tour.id).length
     : 0;
-  // 5-day-to-start block: within the final window the leave flow is closed
-  // entirely (the user must contact operators directly).
+  // 5-day-to-start block: within the final window both the LEAVE flow and
+  // the JOIN flow are closed (members must contact operators directly; new
+  // joiners would arrive too late to influence the group).
   const daysToStart = tour ? daysUntilStart(tour.dateStart) ?? Infinity : Infinity;
   const leaveBlocked = Number.isFinite(daysToStart) && daysToStart <= 5;
+  const joinBlocked = leaveBlocked; // same window — see FIX #5 in audit doc
 
   const similarTours = allTours
     .filter(
@@ -433,7 +441,9 @@ export default function TourDetailPage() {
                       disabled={leaveBlocked}
                       title={
                         leaveBlocked
-                          ? `This tour starts in ${daysToStart} day${daysToStart === 1 ? "" : "s"}. To cancel, contact the operators directly.`
+                          ? Number.isFinite(daysToStart) && daysToStart > 0
+                            ? `This tour starts in ${daysToStart} day${daysToStart === 1 ? "" : "s"}. To cancel, contact the operators directly.`
+                            : "This tour has already started. To cancel, contact the operators directly."
                           : undefined
                       }
                     >
@@ -441,7 +451,9 @@ export default function TourDetailPage() {
                     </BrutalButton>
                     <p className="text-xs font-bold uppercase text-center mt-3">
                       {leaveBlocked
-                        ? `This tour starts in ${daysToStart}d — too late to leave. Contact operators directly.`
+                        ? Number.isFinite(daysToStart) && daysToStart > 0
+                          ? `This tour starts in ${daysToStart}d — too late to leave. Contact operators directly.`
+                          : "Tour already started — too late to leave. Contact operators directly."
                         : "You're a member of this group"}
                     </p>
                   </>
@@ -456,11 +468,33 @@ export default function TourDetailPage() {
                       size="md"
                       className="w-full mb-3"
                       onClick={() => setShowJoin(true)}
+                      disabled={joinBlocked}
+                      title={
+                        joinBlocked
+                          ? Number.isFinite(daysToStart) && daysToStart > 0
+                            ? `This tour starts in ${daysToStart} day${daysToStart === 1 ? "" : "s"} — joining is closed. Browse other groups.`
+                            : "Tour has already started — joining is closed. Browse other groups."
+                          : undefined
+                      }
                     >
                       JOIN GROUP
                     </BrutalButton>
+                    {joinBlocked ? (
+                      <BrutalButton
+                        href="/tours"
+                        variant="secondary"
+                        size="md"
+                        className="w-full mb-3"
+                      >
+                        BROWSE OTHER GROUPS
+                      </BrutalButton>
+                    ) : null}
                     <p className="text-xs font-bold uppercase text-center">
-                      Free to join · leave terms shown in the next step
+                      {joinBlocked
+                        ? Number.isFinite(daysToStart) && daysToStart > 0
+                          ? `This tour starts in ${daysToStart}d — joining is closed.`
+                          : "Tour already started — joining is closed."
+                        : "Free to join · leave terms shown in the next step"}
                     </p>
                   </>
                 )}
@@ -525,9 +559,13 @@ export default function TourDetailPage() {
  */
 function ClosingWindow({ tour }: { tour: import("@/components/tour/tour-card").Tour }) {
   const active = isClosingSoon(tour);
-  useNow(active, 1000);
+  const now = useNow(active, 1000);
   if (!active) return null;
-  const msLeft = closingWindowMsLeft(tour) ?? 0;
+  // During SSR + first paint, `now` is null. Render a static "CLOSING SOON"
+  // placeholder so server HTML matches the first client render; once mounted
+  // the live countdown takes over and ticks every second.
+  const msLeft =
+    now === null ? null : Math.max(0, closingWindowMsLeft(tour) ?? 0);
   return (
     <div className="bg-[#FF6B9D] border-3 border-black px-3 py-2 mb-4 shadow-[3px_3px_0_#000] flex items-center justify-between gap-3">
       <div className="flex items-center gap-2 text-white">
@@ -537,7 +575,7 @@ function ClosingWindow({ tour }: { tour: import("@/components/tour/tour-card").T
         </p>
       </div>
       <p className="font-black tabular-nums text-sm bg-white px-2 py-0.5 border-2 border-black">
-        {formatCountdown(msLeft)}
+        {msLeft === null ? "SOON" : formatCountdown(msLeft)}
       </p>
     </div>
   );

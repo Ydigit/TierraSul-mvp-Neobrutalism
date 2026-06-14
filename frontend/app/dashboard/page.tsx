@@ -197,7 +197,9 @@ function DashboardContent() {
                           disabled={blocked}
                           title={
                             blocked && d !== null
-                              ? `This tour starts in ${d} day${d === 1 ? "" : "s"}. To cancel, contact the operators directly.`
+                              ? d > 0
+                                ? `This tour starts in ${d} day${d === 1 ? "" : "s"}. To cancel, contact the operators directly.`
+                                : "This tour has already started. To cancel, contact the operators directly."
                               : undefined
                           }
                           className={`font-bold uppercase text-xs ${
@@ -206,7 +208,11 @@ function DashboardContent() {
                               : "text-[#FF3B3B] hover:underline"
                           }`}
                         >
-                          {blocked ? "TOO LATE TO LEAVE" : "LEAVE GROUP →"}
+                          {blocked
+                            ? d !== null && d <= 0
+                              ? "ALREADY STARTED"
+                              : "TOO LATE TO LEAVE"
+                            : "LEAVE GROUP →"}
                         </button>
                       );
                     })()}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { User } from "lucide-react";
 import { BrutalModal } from "@/components/ui/brutal-modal";
 import { BrutalButton } from "@/components/ui/brutal-button";
@@ -295,6 +295,12 @@ interface ReportModalProps {
 function ReportModal({ open, onClose, onSubmit }: ReportModalProps) {
   const { toast } = useToast();
   const [reason, setReason] = useState("");
+
+  // Cancel = discard: clear the textarea whenever the modal transitions to
+  // closed. A reporter who backed out shouldn't see stale text on reopen.
+  useEffect(() => {
+    if (!open) setReason("");
+  }, [open]);
 
   const submit = () => {
     const r = reason.trim();

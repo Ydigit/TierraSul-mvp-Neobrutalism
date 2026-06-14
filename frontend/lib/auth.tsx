@@ -1,5 +1,30 @@
 "use client";
 
+/**
+ * Mock auth with localStorage persistence.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SECURITY (frontend-only MVP)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The `role`, `status`, `emailVerified`, and `subscription` fields on
+ * `AuthUser` are PURELY CLIENT-SIDE in this build. Anyone who can open
+ * devtools can set `tierrasul:user` to `{ role: "admin" }` and see the admin
+ * console (verified in the deep audit — FIX #12). This is acceptable only
+ * while no real data exists.
+ *
+ * Backend handoff requirements:
+ *   • Sign-in/sign-up must round-trip through a server (Supabase Auth or a
+ *     server action) — `signIn()` becomes a thin wrapper around the server
+ *     response, never a free role-grant.
+ *   • Every API call must carry an auth bearer; the server re-derives role
+ *     from the verified JWT, never from request body.
+ *   • RLS policies must enforce role + ownership independently of what the
+ *     client claims.
+ *   • `subscription` should be read from the operator's billing row server-
+ *     side, never trusted from the auth payload.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import {
   createContext,
   useCallback,
@@ -146,6 +171,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // corrupt storage — treat as logged out
     }
     setLoading(false);
+  }, []);
+
+  // Cross-tab sync. When the user signs in/out (or status changes to banned)
+  // in another tab, mirror it here. Without this, an admin could ban Maria in
+  // tab A while she's still acting as authenticated in tab B.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY) return;
+      try {
+        setUser(e.newValue ? (JSON.parse(e.newValue) as AuthUser) : null);
+      } catch {
+        // ignore parse errors
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const persist = (next: AuthUser | null) => {

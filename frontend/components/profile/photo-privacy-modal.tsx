@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { BrutalModal } from "@/components/ui/brutal-modal";
 import { BrutalButton } from "@/components/ui/brutal-button";
@@ -38,6 +38,13 @@ export function PhotoPrivacyModal({
   onAccept,
 }: PhotoPrivacyModalProps) {
   const [checked, setChecked] = useState(false);
+
+  // Cancel = discard: clear the checkbox whenever the modal transitions to
+  // closed. Mitigates the "checkbox persisted across reopen" finding from the
+  // audit (rare in practice because consent is 1× lifetime, but still wrong).
+  useEffect(() => {
+    if (!open) setChecked(false);
+  }, [open]);
 
   const accept = () => {
     if (!checked) return;
